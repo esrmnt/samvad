@@ -11,23 +11,16 @@ Usage:
 """
 
 import os
+import sys
 import argparse
 import statistics
 
 from transformers import AutoTokenizer
 from datasets import DatasetDict, concatenate_datasets, load_dataset
 
-from config import (
-    ASSISTANT_MARKER,
-    DATASET_ID,
-    MAX_LENGTH,
-    MODEL_ID,
-    PROCESSED_DATA_DIR,
-    SEED,
-    SYSTEM_PROMPT,
-    TEST_SIZE,
-    VAL_SIZE,
-)
+# Add parent directory to sys.path to import config
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+import config
 
 
 def build_prompt(hate_speech: str, cs_type: str, counterspeech: str = None) -> str:
@@ -46,9 +39,9 @@ def build_prompt(hate_speech: str, cs_type: str, counterspeech: str = None) -> s
     )
 
     prefix = (
-        f"<|im_start|>system\n{SYSTEM_PROMPT}<|im_end|>\n"
+        f"<|im_start|>system\n{config.SYSTEM_PROMPT}<|im_end|>\n"
         f"<|im_start|>user\n{user_content}<|im_end|>\n"
-        f"{ASSISTANT_MARKER}"
+        f"{config.ASSISTANT_MARKER}"
     )
 
     if counterspeech is None:
@@ -84,19 +77,19 @@ def tokenize(batch: dict, tokenizer: AutoTokenizer) -> dict:
     """
     encodings = tokenizer(
         batch["prompt"],
-        max_length=MAX_LENGTH,
+        max_length=config.MAX_LENGTH,
         truncation=True,
         padding="max_length",
     )
 
     labels = []
     for input_ids, prompt_text in zip(encodings["input_ids"], batch["prompt"]):
-        prefix     = prompt_text.split(ASSISTANT_MARKER)[0] + ASSISTANT_MARKER
-        prefix_ids = tokenizer(prefix, truncation=True, max_length=MAX_LENGTH)["input_ids"]
+        prefix     = prompt_text.split(config.ASSISTANT_MARKER)[0] + config.ASSISTANT_MARKER
+        prefix_ids = tokenizer(prefix, truncation=True, max_length=config.MAX_LENGTH)["input_ids"]
         n_masked   = len(prefix_ids)
 
         label_ids = [-100] * n_masked + input_ids[n_masked:]
-        label_ids = (label_ids + [-100] * MAX_LENGTH)[:MAX_LENGTH]
+        label_ids = (label_ids + [-100] * config.MAX_LENGTH)[:config.MAX_LENGTH]
         labels.append(label_ids)
 
     encodings["labels"] = labels
@@ -122,9 +115,9 @@ def make_splits(full_dataset) -> DatasetDict:
     Carve out test first, then split remainder into train / val.
     Test is isolated before any other decision — no leakage.
     """
-    holdout   = full_dataset.train_test_split(test_size=TEST_SIZE, seed=SEED)
+    holdout   = full_dataset.train_test_split(test_size=config.TEST_SIZE, seed=config.SEED)
     train_val = holdout["train"].train_test_split(
-        test_size=VAL_SIZE / (1 - TEST_SIZE), seed=SEED
+        test_size=config.VAL_SIZE / (1 - config.TEST_SIZE), seed=config.SEED
     )
     return DatasetDict({
         "train": train_val["train"],
@@ -144,17 +137,17 @@ def print_length_stats(tokenized_dataset, tokenizer):
     print(f"  mean      : {statistics.mean(lengths):.0f}")
     print(f"  median    : {statistics.median(lengths):.0f}")
     print(f"  max       : {max(lengths)}")
-    print(f"  truncated (>{MAX_LENGTH}): {sum(l > MAX_LENGTH for l in lengths)}")
+    print(f"  truncated (>{config.MAX_LENGTH}): {sum(l > config.MAX_LENGTH for l in lengths)}")
 
 
 def main(args):
     # 1. Load
-    print(f"Loading dataset: {DATASET_ID}")
-    full = load_full_dataset(DATASET_ID)
+    print(f"Loading dataset: {config.DATASET_ID}")
+    full = load_full_dataset(config.DATASET_ID)
     print(f"      Total samples: {len(full)}")
 
     # 2. Split
-    print(f"Splitting — train/val/test ({int((1-TEST_SIZE-VAL_SIZE)*100)}/{int(VAL_SIZE*100)}/{int(TEST_SIZE*100)}%)")
+    print(f"Splitting — train/val/test ({int((1-config.TEST_SIZE-config.VAL_SIZE)*100)}/{int(config.VAL_SIZE*100)}/{int(config.TEST_SIZE*100)}%)")
     splits = make_splits(full)
     for name, ds in splits.items():
         print(f"      {name}: {len(ds)} samples")
@@ -172,8 +165,8 @@ def main(args):
         return
 
     # 4. Tokenise
-    print(f"Tokenising with {MODEL_ID} …")
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+    print(f"Tokenising with {config.MODEL_ID} …")
+    tokenizer = AutoTokenizer.from_pretrained(config.MODEL_ID)
     tokenizer.pad_token = tokenizer.eos_token
 
     cols_to_keep = {"prompt", "prompt_no_ans", "hate_speech", "cs_type", "counterspeech"}
@@ -188,7 +181,7 @@ def main(args):
     tokenized.set_format("torch")
 
     # 5. Save
-    output_dir = args.output_dir or PROCESSED_DATA_DIR
+    output_dir = args.output_dir or config.PROCESSED_DATA_DIR
     print(f"Saving to {output_dir} …")
     os.makedirs(output_dir, exist_ok=True)
     tokenized.save_to_disk(output_dir)
