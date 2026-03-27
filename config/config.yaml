@@ -1,0 +1,65 @@
+# Model & Dataset
+model:
+  id: "Qwen/Qwen2-0.5B-Instruct"
+dataset:
+  id: "Aswini123/IntentCONANv2"
+
+# Data
+data:
+  max_length: 256
+  val_size: 0.1
+  test_size: 0.1
+  seed: 42
+
+# Paths
+paths:
+  processed_data_dir: "./data/processed"
+  checkpoints_dir: "./checkpoints"
+  results_dir: "./results"
+
+# Prompts
+prompts:
+  system_prompt: >
+    You are a counterspeech assistant. Given a hate speech message and a
+    desired response strategy, generate a constructive and non-toxic counter
+    response.
+  assistant_marker: "<|im_start|>assistant\n"
+
+# Training
+training:
+  learning_rate: 2e-4
+  num_epochs: 3
+  batch_size: 1
+  grad_accum_steps: 8
+  warmup_ratio: 0.05
+  lr_scheduler: "cosine"
+  logging_steps: 10
+  save_steps: 100
+
+# LoRA
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules:
+    - "q_proj"
+    - "k_proj"
+    - "v_proj"
+    - "o_proj"
+
+# QLoRA
+qlora:
+  bits: 4
+  double_quant: true
+  quant_type: "nf4"
+
+# Prefix Tuning
+prefix:
+  num_virtual_tokens: 20
+
+# Generation
+generation:
+  max_new_tokens: 128
+  temperature: 0.7
+  top_p: 0.9
+  do_sample: true

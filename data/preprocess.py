@@ -1,26 +1,22 @@
 """
 samvad/data/preprocess.py
 
-Loads IntentCONANv2 from HuggingFace, formats each sample into a
-structured prompt, and saves train / val / test splits as Arrow datasets.
+Data preprocessing pipeline: loads IntentCONANv2 from HuggingFace, formats
+each sample into ChatML prompts, and saves train/val/test splits as Arrow datasets.
 
-Usage:
-    python data/preprocess.py                        # saves to default path
-    python data/preprocess.py --output_dir /my/path  # custom output dir
-    python data/preprocess.py --preview              # print 3 samples and exit
+Usage (from main entry point):
+    python main.py --preprocess                    # saves to default path
+    python main.py --preprocess --preview          # preview mode
+    python main.py --preprocess --output_dir /path # custom output dir
 """
 
 import os
-import sys
-import argparse
 import statistics
 
 from transformers import AutoTokenizer
 from datasets import DatasetDict, concatenate_datasets, load_dataset
 
-# Add parent directory to sys.path to import config
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-import config
+from config import config
 
 
 def build_prompt(hate_speech: str, cs_type: str, counterspeech: str = None) -> str:
@@ -32,6 +28,9 @@ def build_prompt(hate_speech: str, cs_type: str, counterspeech: str = None) -> s
 
     Both share the exact same prefix so training and inference are consistent.
     """
+    system_prompt = config.get("prompts.system_prompt")
+    assistant_marker = config.get("prompts.assistant_marker")
+    
     user_content = (
         f"Hate speech: {hate_speech.strip()}\n"
         f"Response strategy: {cs_type.strip()}\n"
@@ -39,9 +38,9 @@ def build_prompt(hate_speech: str, cs_type: str, counterspeech: str = None) -> s
     )
 
     prefix = (
-        f"<|im_start|>system\n{config.SYSTEM_PROMPT}<|im_end|>\n"
+        f"<|im_start|>system\n{system_prompt}<|im_end|>\n"
         f"<|im_start|>user\n{user_content}<|im_end|>\n"
-        f"{config.ASSISTANT_MARKER}"
+        f"{assistant_marker}"
     )
 
     if counterspeech is None:
@@ -75,21 +74,24 @@ def tokenize(batch: dict, tokenizer: AutoTokenizer) -> dict:
     turn, and assistant marker are all masked to -100 so PyTorch's
     cross-entropy skips them entirely.
     """
+    max_length = config.get("data.max_length")
+    assistant_marker = config.get("prompts.assistant_marker")
+    
     encodings = tokenizer(
         batch["prompt"],
-        max_length=config.MAX_LENGTH,
+        max_length=max_length,
         truncation=True,
         padding="max_length",
     )
 
     labels = []
     for input_ids, prompt_text in zip(encodings["input_ids"], batch["prompt"]):
-        prefix     = prompt_text.split(config.ASSISTANT_MARKER)[0] + config.ASSISTANT_MARKER
-        prefix_ids = tokenizer(prefix, truncation=True, max_length=config.MAX_LENGTH)["input_ids"]
+        prefix     = prompt_text.split(assistant_marker)[0] + assistant_marker
+        prefix_ids = tokenizer(prefix, truncation=True, max_length=max_length)["input_ids"]
         n_masked   = len(prefix_ids)
 
         label_ids = [-100] * n_masked + input_ids[n_masked:]
-        label_ids = (label_ids + [-100] * config.MAX_LENGTH)[:config.MAX_LENGTH]
+        label_ids = (label_ids + [-100] * max_length)[:max_length]
         labels.append(label_ids)
 
     encodings["labels"] = labels
@@ -115,9 +117,13 @@ def make_splits(full_dataset) -> DatasetDict:
     Carve out test first, then split remainder into train / val.
     Test is isolated before any other decision — no leakage.
     """
-    holdout   = full_dataset.train_test_split(test_size=config.TEST_SIZE, seed=config.SEED)
+    test_size = config.get("data.test_size")
+    val_size = config.get("data.val_size")
+    seed = config.get("data.seed")
+    
+    holdout   = full_dataset.train_test_split(test_size=test_size, seed=seed)
     train_val = holdout["train"].train_test_split(
-        test_size=config.VAL_SIZE / (1 - config.TEST_SIZE), seed=config.SEED
+        test_size=val_size / (1 - test_size), seed=seed
     )
     return DatasetDict({
         "train": train_val["train"],
@@ -128,6 +134,8 @@ def make_splits(full_dataset) -> DatasetDict:
 
 def print_length_stats(tokenized_dataset, tokenizer):
     """Print non-padding token length stats for the train split."""
+    max_length = config.get("data.max_length")
+    
     pad_id  = tokenizer.pad_token_id
     lengths = [
         sum(1 for t in ids if t != pad_id)
@@ -137,26 +145,35 @@ def print_length_stats(tokenized_dataset, tokenizer):
     print(f"  mean      : {statistics.mean(lengths):.0f}")
     print(f"  median    : {statistics.median(lengths):.0f}")
     print(f"  max       : {max(lengths)}")
-    print(f"  truncated (>{config.MAX_LENGTH}): {sum(l > config.MAX_LENGTH for l in lengths)}")
+    print(f"  truncated (>{max_length}): {sum(l > max_length for l in lengths)}")
 
 
-def main(args):
+def preprocess(output_dir: str = None, preview: bool = False) -> None:
+    """Run the data preprocessing pipeline.
+    
+    Args:
+        output_dir: Output directory for processed data (uses config default if None)
+        preview: If True, show sample prompts and exit without saving
+    """
     # 1. Load
-    print(f"Loading dataset: {config.DATASET_ID}")
-    full = load_full_dataset(config.DATASET_ID)
+    dataset_id = config.get("dataset.id")
+    print(f"Loading dataset: {dataset_id}")
+    full = load_full_dataset(dataset_id)
     print(f"      Total samples: {len(full)}")
 
     # 2. Split
-    print(f"Splitting — train/val/test ({int((1-config.TEST_SIZE-config.VAL_SIZE)*100)}/{int(config.VAL_SIZE*100)}/{int(config.TEST_SIZE*100)}%)")
+    test_size = config.get("data.test_size")
+    val_size = config.get("data.val_size")
+    print(f"Splitting — train/val/test ({int((1-test_size-val_size)*100)}/{int(val_size*100)}/{int(test_size*100)}%)")
     splits = make_splits(full)
     for name, ds in splits.items():
         print(f"      {name}: {len(ds)} samples")
 
     # 3. Build prompts
     print("Building prompts …")
-    splits = splits.map(add_prompt, desc="Formatting prompts")
+    splits = splits.map(lambda example: add_prompt(example), desc="Formatting prompts")
 
-    if args.preview:
+    if preview:
         print("\n Sample prompts (from train split):")
         for i in range(min(3, len(splits["train"]))):
             print(f"\n[Sample {i + 1}]")
@@ -165,8 +182,9 @@ def main(args):
         return
 
     # 4. Tokenise
-    print(f"Tokenising with {config.MODEL_ID} …")
-    tokenizer = AutoTokenizer.from_pretrained(config.MODEL_ID)
+    model_id = config.get("model.id")
+    print(f"Tokenising with {model_id} …")
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
     tokenizer.pad_token = tokenizer.eos_token
 
     cols_to_keep = {"prompt", "prompt_no_ans", "hate_speech", "cs_type", "counterspeech"}
@@ -181,30 +199,18 @@ def main(args):
     tokenized.set_format("torch")
 
     # 5. Save
-    output_dir = args.output_dir or config.PROCESSED_DATA_DIR
-    print(f"Saving to {output_dir} …")
-    os.makedirs(output_dir, exist_ok=True)
-    tokenized.save_to_disk(output_dir)
+    processed_data_dir = config.get("paths.processed_data_dir")
+    final_output_dir = output_dir or processed_data_dir
+    print(f"Saving to {final_output_dir} …")
+    os.makedirs(final_output_dir, exist_ok=True)
+    tokenized.save_to_disk(final_output_dir)
 
     splits["train"].select(range(min(500, len(splits["train"])))).to_csv(
-        os.path.join(output_dir, "train_sample.csv"), index=False
+        os.path.join(final_output_dir, "train_sample.csv"), index=False
     )
 
     print("\nDone. Directory contents:")
-    for f in sorted(os.listdir(output_dir)):
+    for f in sorted(os.listdir(final_output_dir)):
         print(f"  {f}")
 
     print_length_stats(tokenized, tokenizer)
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--output_dir", default=None,
-        help="Where to save the processed dataset (default: config.PROCESSED_DATA_DIR)"
-    )
-    parser.add_argument(
-        "--preview", action="store_true",
-        help="Print 3 sample prompts and exit without saving"
-    )
-    main(parser.parse_args())
