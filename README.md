@@ -12,7 +12,7 @@ One-time environment setup:
 cd /Users/equo/Src/samvad
 python3 -m venv venv
 source venv/bin/activate
-pip install -e .
+pip install -r requirements.txt
 ```
 
 ### Running the Project

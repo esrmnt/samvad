@@ -8,13 +8,13 @@ Use: from config import config
 import os
 import yaml
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 
 class Config:
     """Configuration class that loads settings from YAML and provides attribute access."""
 
-    def __init__(self, config_path: str | None = None):
+    def __init__(self, config_path: Optional[str] = None):
         """Initialize config by loading from YAML file.
         
         Args:
