@@ -13,9 +13,10 @@ data:
 
 # Paths
 paths:
-  processed_data_dir: "./data/processed"
-  checkpoints_dir: "./checkpoints"
-  results_dir: "./results"
+  data_artifacts_dir: "./dataset"
+  processed_data_dir: "./dataset/processed"
+  checkpoints_dir: "./dataset/checkpoints"
+  results_dir: "./dataset/results"
 
 # Prompts
 prompts:

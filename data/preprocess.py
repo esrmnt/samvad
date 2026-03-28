@@ -3,11 +3,6 @@ samvad/data/preprocess.py
 
 Data preprocessing pipeline: loads IntentCONANv2 from HuggingFace, formats
 each sample into ChatML prompts, and saves train/val/test splits as Arrow datasets.
-
-Usage (from main entry point):
-    python main.py --preprocess                    # saves to default path
-    python main.py --preprocess --preview          # preview mode
-    python main.py --preprocess --output_dir /path # custom output dir
 """
 
 import os
