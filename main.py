@@ -18,6 +18,7 @@ import argparse
 
 from config import config
 from data.preprocess import preprocess
+from training.full_finetune import train as full_finetune
 
 def setup_logging(log_level: str = "INFO") -> None:
     """Configure logging for the project.
@@ -56,6 +57,10 @@ def main() -> None:
         "--preview", action="store_true",
         help="Preview sample prompts without saving (used with --preprocess)"
     )
+    parser.add_argument(
+        "--train_full", action="store_true",
+        help="Run full fine-tuning (training/full_finetune.py)"
+    )
     args = parser.parse_args()
     
     setup_logging()
@@ -77,7 +82,14 @@ def main() -> None:
     if args.preprocess:
         logger.info("Running data preprocessing...")
         preprocess(output_dir=args.output_dir, preview=args.preview)
-    else:
+
+    # Run full fine-tuning if requested
+    if args.train_full:
+        logger.info("Running full fine-tuning...")
+        full_finetune()
+        return
+
+    if not args.preprocess and not args.train_full:
         logger.info("Setup complete. Ready to run your code!")
         logger.info("Tip: Use --preprocess to run data preprocessing")
     

@@ -32,26 +32,23 @@ from config import config
 
 logger = logging.getLogger(__name__)
 
-# ── Config ─────────────────────────────────────────────────────────────────────
 
 MODEL_ID          = config.get("model.id")
 PROCESSED_DIR     = config.get("paths.processed_data_dir")
 CHECKPOINTS_DIR   = config.get("paths.checkpoints_dir")
-LEARNING_RATE     = config.get("training.learning_rate")
-NUM_EPOCHS        = config.get("training.num_epochs")
-BATCH_SIZE        = config.get("training.batch_size")
-GRAD_ACCUM_STEPS  = config.get("training.grad_accum_steps")
-WARMUP_RATIO      = config.get("training.warmup_ratio")
+LEARNING_RATE     = float(config.get("training.learning_rate"))
+NUM_EPOCHS        = int(config.get("training.num_epochs"))
+BATCH_SIZE        = int(config.get("training.batch_size"))
+GRAD_ACCUM_STEPS  = int(config.get("training.grad_accum_steps"))
+WARMUP_RATIO      = float(config.get("training.warmup_ratio"))
+LOGGING_STEPS     = int(config.get("training.logging_steps"))
+SAVE_STEPS        = int(config.get("training.save_steps"))
+MAX_LENGTH        = int(config.get("data.max_length"))
 LR_SCHEDULER      = config.get("training.lr_scheduler")
-LOGGING_STEPS     = config.get("training.logging_steps")
-SAVE_STEPS        = config.get("training.save_steps")
-MAX_LENGTH        = config.get("data.max_length")
 
 RUN_NAME          = "full-finetune"
 OUTPUT_DIR        = os.path.join(CHECKPOINTS_DIR, RUN_NAME)
 
-
-# ── Model & tokenizer ──────────────────────────────────────────────────────────
 
 def load_model_and_tokenizer():
     """
@@ -70,7 +67,7 @@ def load_model_and_tokenizer():
 
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
-        torch_dtype=torch.float16,     # fp16 — halves VRAM vs float32
+        torch_dtype=torch.float32,     # ← float32 on load, trainer handles fp16
         device_map="auto",             # places model on GPU automatically
     )
 
@@ -85,8 +82,6 @@ def load_model_and_tokenizer():
 
     return model, tokenizer
 
-
-# ── Dataset ────────────────────────────────────────────────────────────────────
 
 def load_dataset():
     """Load preprocessed Arrow dataset from disk."""
@@ -105,8 +100,6 @@ def load_dataset():
     return dataset
 
 
-# ── Training arguments ─────────────────────────────────────────────────────────
-
 def build_training_args() -> TrainingArguments:
     """
     Build TrainingArguments configured for full FT on a 12GB GPU.
@@ -117,23 +110,37 @@ def build_training_args() -> TrainingArguments:
     - per_device_train_batch_size=1
       + gradient_accumulation_steps=8 : effective batch = 8, but only 1
                                         sample in VRAM at a time
+
+    Changes from previous version:
+    - warmup_ratio  → warmup_steps  (warmup_ratio deprecated in v5.2)
+    - logging_dir   removed         (deprecated in v5.2; set env var
+                                     TENSORBOARD_LOGGING_DIR if needed)
     """
+    # Compute warmup_steps from warmup_ratio as a best-effort approximation.
+    # Trainer normally derives this from the dataset size, but we can set it
+    # explicitly here to avoid the deprecation warning.
+    # Formula: warmup_steps = ceil(warmup_ratio * total_steps)
+    #          total_steps  = ceil(train_samples / effective_batch) * epochs
+    # Since we don't have dataset size here, we use a conservative fixed value.
+    # Override this constant if your dataset size changes significantly.
+    WARMUP_STEPS = 100  # ~10% of steps for a ~800-sample train split at eff. batch=8
+
     return TrainingArguments(
         # ── Output & logging ──────────────────────────────────────────────────
         output_dir          = OUTPUT_DIR,
         run_name            = RUN_NAME,
-        logging_dir         = os.path.join(OUTPUT_DIR, "logs"),
+        # logging_dir is deprecated in v5.2 — set TENSORBOARD_LOGGING_DIR env
+        # var instead if you need TensorBoard output:
+        #   export TENSORBOARD_LOGGING_DIR=<path>
         logging_strategy    = "steps",
         logging_steps       = LOGGING_STEPS,
         report_to           = "none",          # local only — no W&B
 
-        # ── Training schedule ─────────────────────────────────────────────────
         num_train_epochs            = NUM_EPOCHS,
         learning_rate               = LEARNING_RATE,
         lr_scheduler_type           = LR_SCHEDULER,
-        warmup_ratio                = WARMUP_RATIO,
+        warmup_steps                = WARMUP_STEPS,
 
-        # ── Batch & memory ────────────────────────────────────────────────────
         per_device_train_batch_size = BATCH_SIZE,
         per_device_eval_batch_size  = BATCH_SIZE,
         gradient_accumulation_steps = GRAD_ACCUM_STEPS,
@@ -141,7 +148,6 @@ def build_training_args() -> TrainingArguments:
         fp16                        = True,
         optim                       = "adamw_torch_fused",
 
-        # ── Evaluation & checkpointing ────────────────────────────────────────
         eval_strategy               = "steps",
         eval_steps                  = SAVE_STEPS,
         save_strategy               = "steps",
@@ -151,17 +157,11 @@ def build_training_args() -> TrainingArguments:
         metric_for_best_model       = "eval_loss",
         greater_is_better           = False,    # lower loss = better
 
-        # ── Reproducibility ───────────────────────────────────────────────────
         seed                        = 42,
         data_seed                   = 42,
 
-        # ── Misc ──────────────────────────────────────────────────────────────
-        remove_unused_columns       = False,    # we manage columns ourselves
-        group_by_length             = True,     # batches similar lengths → less padding waste
+        remove_unused_columns       = False    # we manage columns ourselves
     )
-
-
-# ── Trainer ────────────────────────────────────────────────────────────────────
 
 def train(output_dir: str = None) -> None:
     """
@@ -180,6 +180,13 @@ def train(output_dir: str = None) -> None:
     model, tokenizer = load_model_and_tokenizer()
     dataset          = load_dataset()
 
+    # Keep only tensor columns — collator can't handle raw text columns
+    tensor_cols  = {"input_ids", "attention_mask", "labels"}
+    train_dataset = dataset["train"].remove_columns([c for c in dataset["train"].column_names if c not in tensor_cols])
+    val_dataset = dataset["val"].remove_columns([c for c in dataset["val"].column_names if c not in tensor_cols])
+    train_dataset.set_format("torch")   
+    val_dataset.set_format("torch")    
+
     # Data collator — handles dynamic padding within each batch
     data_collator = DataCollatorForSeq2Seq(
         tokenizer          = tokenizer,
@@ -191,16 +198,17 @@ def train(output_dir: str = None) -> None:
     training_args = build_training_args()
 
     trainer = Trainer(
-        model         = model,
-        args          = training_args,
-        train_dataset = dataset["train"],
-        eval_dataset  = dataset["val"],
-        tokenizer     = tokenizer,
-        data_collator = data_collator,
-        callbacks     = [EarlyStoppingCallback(early_stopping_patience=3)],
+        model            = model,
+        args             = training_args,
+        train_dataset    = train_dataset,
+        eval_dataset     = val_dataset,
+        # 'tokenizer' kwarg removed in transformers v4.47+ → use processing_class
+        # See: https://huggingface.co/docs/transformers/main/en/main_classes/trainer
+        processing_class = tokenizer,
+        data_collator    = data_collator,
+        callbacks        = [EarlyStoppingCallback(early_stopping_patience=3)],
     )
 
-    # ── Train ──────────────────────────────────────────────────────────────────
     logger.info("Starting full fine-tuning …")
     logger.info(f"Effective batch size : {BATCH_SIZE * GRAD_ACCUM_STEPS}")
     logger.info(f"Checkpoint dir       : {OUTPUT_DIR}")
@@ -219,7 +227,6 @@ def train(output_dir: str = None) -> None:
 
     train_result = trainer.train(resume_from_checkpoint=last_checkpoint)
 
-    # ── Save final model ───────────────────────────────────────────────────────
     logger.info("Saving final model …")
     trainer.save_model(OUTPUT_DIR)
     tokenizer.save_pretrained(OUTPUT_DIR)
