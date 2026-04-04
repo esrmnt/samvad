@@ -19,6 +19,7 @@ import argparse
 from config import config
 from data.preprocess import preprocess
 from training.lora import train as train_lora
+from training.qlora import train as train_qlora
 from training.full_finetune import train as full_finetune
 
 def setup_logging(log_level: str = "INFO") -> None:
@@ -101,6 +102,12 @@ def main() -> None:
     # Run LoRA fine-tuning if requested    
     if args.train_lora:
         train_lora()
+        return
+    
+    # Run QLoRA fine-tuning if requested
+    if args.train_qlora:
+        train_qlora()
+        return
 
     if not args.preprocess and not args.train_full:
         logger.info("Setup complete. Ready to run your code!")
