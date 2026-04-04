@@ -126,7 +126,6 @@ def build_training_args() -> TrainingArguments:
     WARMUP_STEPS = 100  # ~10% of steps for a ~800-sample train split at eff. batch=8
 
     return TrainingArguments(
-        # ── Output & logging ──────────────────────────────────────────────────
         output_dir          = OUTPUT_DIR,
         run_name            = RUN_NAME,
         # logging_dir is deprecated in v5.2 — set TENSORBOARD_LOGGING_DIR env
