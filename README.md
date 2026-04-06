@@ -1,6 +1,6 @@
 # samvad
 
-Counterspeech generation with fine-tuned LLMs.
+Counterspeech generation with fine-tuned language models. This project provides a complete pipeline for preprocessing hate speech datasets and training multiple fine-tuning strategies (standard fine-tuning, LoRA, and QLoRA) for generating effective counter-responses.
 
 ## Quick Start
 
@@ -9,7 +9,7 @@ Counterspeech generation with fine-tuned LLMs.
 One-time environment setup:
 
 ```bash
-cd /Users/equo/Src/samvad
+cd samvad
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
@@ -24,11 +24,7 @@ source venv/bin/activate
 python main.py
 ```
 
-Or if installed as a package:
-
-```bash
-samvad
-```
+## Workflows
 
 ### Data Preprocessing
 
@@ -45,7 +41,7 @@ python main.py --preprocess
 python main.py --preprocess --output_dir ./custom_data_path
 ```
 
-Or run preprocessing directly as a standalone module:
+Or run preprocessing directly:
 
 ```bash
 python data/preprocess.py --preview
@@ -53,33 +49,54 @@ python data/preprocess.py
 python data/preprocess.py --output_dir ./custom_data_path
 ```
 
-Or import and use the preprocessing function in your own code:
+Or import in your code:
 
 ```python
 from data.preprocess import preprocess
 
 preprocess()                                # uses config defaults
-preprocess(output_dir="./my_data")         # custom output
+preprocess(output_dir="./my_data")          # custom output
 preprocess(preview=True)                    # preview mode
 ```
 
-**Preprocessing steps:**
-1. Load dataset from HuggingFace Hub
-2. Split into train/validation/test
+**Preprocessing pipeline:**
+1. Load dataset from HuggingFace Hub (IntentCONANv2)
+2. Split into train/validation/test sets
 3. Build ChatML-formatted prompts
 4. Tokenize with label masking
-5. Save as Arrow datasets to `data/processed/`
+5. Save as Arrow datasets to `dataset/processed/`
 
-## Configuration System
+### Model Training
 
-Configuration is managed in a single `config/config.yaml` file, globally accessible throughout the project using an industry-standard singleton pattern.
+Train the model using different fine-tuning strategies:
 
-### Accessing Config from Any File
+```bash
+# Full fine-tuning (all parameters updated)
+python main.py --train_full
+
+# LoRA fine-tuning (16-rank adaptation layers)
+python main.py --train_lora
+
+# QLoRA fine-tuning (quantized LoRA with 4-bit)
+python main.py --train_qlora
+```
+
+
+**Training outputs:**
+- Checkpoints saved to `dataset/checkpoints/{method}/`
+- Training results and metrics in `dataset/results/`
+- Trained adapters (LoRA) loadable with Hugging Face `peft`
+
+## Configuration
+
+All project settings are managed in a single `config/config.yaml` file, globally accessible using a singleton pattern.
+
+### Accessing Configuration
 
 ```python
 from config import config
 
-# Get nested values with dot notation
+# Get values with dot notation
 batch_size = config.get("training.batch_size")
 model_id = config.get("model.id")
 learning_rate = config.get("training.learning_rate", default=1e-4)
@@ -94,103 +111,129 @@ lora_config = config.lora
 
 The `config/config.yaml` file is organized into sections:
 
-- **model**: Model and dataset identifiers
-- **data**: Data processing parameters (max_length, splits, seed)
-- **paths**: Directory paths for processed data, checkpoints, results
-- **prompts**: System prompts and markers
-- **training**: Training hyperparameters
-- **lora**: LoRA fine-tuning configuration
+- **model**: Model identifier (default: Qwen/Qwen2-0.5B-Instruct)
+- **dataset**: Dataset identifier (default: Aswini123/IntentCONANv2)
+- **data**: Data processing parameters (max_length, train/val/test splits, random seed)
+- **paths**: Directory paths for artifacts, checkpoints, and results
+- **prompts**: System prompts and markers for conversational formatting
+- **training**: Hyperparameters (learning rate, epochs, batch size, warmup, scheduler)
+- **lora**: LoRA configuration (rank, alpha, target modules)
 - **qlora**: QLoRA quantization settings
-- **prefix**: Prefix tuning parameters
-- **generation**: Inference/generation parameters
 
 ### Adding New Configuration
 
-1. Add new values to `config/config.yaml`
-2. Access via dot notation: `config.get("section.key")`
-3. Use `config.get(..., default=value)` for optional values
+Add new values to `config/config.yaml` and access via dot notation anywhere in your code.
 
 Example:
 
 ```yaml
 # config/config.yaml
-gpu:
-  device: "cuda:0"
-  fp16: true
+inference:
+  max_new_tokens: 256
+  temperature: 0.7
 ```
 
 ```python
 # Your code
-device = config.get("gpu.device")
-use_fp16 = config.get("gpu.fp16")
+max_tokens = config.get("inference.max_new_tokens")
+temp = config.get("inference.temperature", default=0.7)
 ```
 
 ## Project Structure
 
 ```
 samvad/
-├── main.py                 # Entry point - run this to start
+├── main.py                 # CLI entry point - orchestrates all workflows
 ├── config/
 │   ├── __init__.py        # Exports global config instance
-│   ├── config.py          # Configuration loader
-│   └── config.yaml        # All project configuration (EDIT THIS)
+│   ├── config.py          # Configuration loader with dot-notation access
+│   └── config.yaml        # All project settings (EDIT THIS)
 ├── data/
 │   ├── __init__.py
-│   └── preprocess.py      # Data preprocessing module
-├── pyproject.toml         # Project metadata and dependencies
-├── LICENSE
-├── .gitignore
+│   └── preprocess.py      # Data preprocessing and dataset loading
+├── training/
+│   ├── full_finetune.py   # Full parameter fine-tuning
+│   ├── lora.py            # LoRA fine-tuning
+│   └── qlora.py           # QLoRA quantized fine-tuning
+├── dataset/               # Generated dataset and checkpoints
+│   ├── processed/         # Preprocessed Arrow datasets
+│   ├── checkpoints/       # Saved model checkpoints
+│   └── results/           # Training metrics and results
+├── requirements.txt       # Python dependencies
+├── LICENSE                # MIT License
 └── README.md              # This file
 ```
 
-## Troubleshooting
+## Installation from Source
 
-**Q: `ModuleNotFoundError: No module named 'yaml'`**
-- A: Install via: `pip install -e .` (installs project + dependencies)
+```bash
+pip install -e .
+```
 
-**Q: `FileNotFoundError: Config file not found`**
-- A: Ensure you're in the project root directory when running
-
-**Q: How do I run tests?**
-- A: Tests can be added to a `tests/` directory and run with `pytest`
-
-## Best Practices
-
-✓ **DO:**
-- Access config from the global instance
-- Use dot notation for nested values
-- Keep all config in `config/config.yaml`
-- Use `config.get(..., default=value)` for optional values
-- Document config keys you're using in comments
-- Run preprocessing before model training
-
-✗ **DON'T:**
-- Hardcode values in your code
-- Create separate config files for modules
-- Store secrets in `config.yaml` (use environment variables instead)
+This installs the project in editable mode with all dependencies.
 
 ## Architecture
 
-**Orchestrator Pattern (Industry Standard):**
+The project follows a clean, modular design:
 
-- **`main.py`**: Single CLI entry point that orchestrates all workflows
-  - Parses command-line arguments
-  - Loads configuration
-  - Delegates to specific module functions
-  
-- **`data/preprocess.py`**: Specific workflow function
-  - Exports `preprocess()` function for programmatic use
-  - Can be run standalone (`python data/preprocess.py`)
-  - Can be imported and called directly (`from data.preprocess import preprocess`)
-  
-- **`config/`**: Centralized configuration
-  - Singleton pattern
-  - Globally accessible from any module
-  - YAML-based configuration file
+- **`main.py`**: CLI orchestrator that parses arguments and delegates to workflow functions
+- **`config.py`**: Singleton configuration loader with dot-notation access from any module
+- **`data/preprocess.py`**: Data loading, preprocessing, and Arrow dataset generation
+- **`training/`**: Modular training implementations (full, LoRA, QLoRA) using HuggingFace Trainer
+- **`dataset/`**: Artifact storage (processed data, model checkpoints, training results)
 
-**Benefits:**
-- Clear separation of concerns
-- Single responsibility per module
-- Reusable functions (can be called from main, CLI, or other code)
-- Easy to add new workflows (train, evaluate, etc.)
-- Industry-standard pattern used by frameworks like Click, Typer, Argparse
+Each workflow module can be:
+- Called from `main.py` (CLI mode)
+- Run directly (standalone mode)
+- Imported and called from other code (library mode)
+
+This design enables flexibility whether you're using samvad as a CLI tool or integrating it into a larger codebase.
+
+## Fine-Tuning Methods
+
+### Full Fine-Tuning
+
+Updates all model parameters. Baseline approach for comparison.
+
+- Memory intensive but often produces best results
+- Use when you have sufficient GPU memory
+- Training: `python main.py --train_full`
+
+### LoRA (Low-Rank Adaptation)
+
+Adds learnable low-rank matrices to attention layers. Recommended for most use cases.
+
+- 10-100x fewer trainable parameters
+- Fast training and inference with minimal latency
+- Easily combine multiple LoRA adapters
+- Training: `python main.py --train_lora`
+- Default config: rank=16, alpha=32
+
+### QLoRA (Quantized LoRA)
+
+Combines 4-bit quantization with LoRA for extreme parameter efficiency.
+
+- Fits large models on consumer GPUs
+- Minimal performance degradation
+- Training: `python main.py --train_qlora`
+- Ideal for resource-constrained environments
+
+## Dataset and Model
+
+By default, samvad uses:
+
+- **Model**: Qwen/Qwen2-0.5B-Instruct (500M parameters)
+- **Dataset**: Aswini123/IntentCONANv2 (hate speech + counter-speech pairs)
+
+To use different models or datasets, update `config/config.yaml`:
+
+```yaml
+model:
+  id: "meta-llama/Llama-2-7b"  # Any model from Hugging Face Hub
+dataset:
+  id: "your-username/your-dataset"
+```
+
+## License
+
+Licensed under the GNU Lesser General Public License v2.1 (LGPL-2.1). See [LICENSE](LICENSE) for details.
