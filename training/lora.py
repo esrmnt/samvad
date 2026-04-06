@@ -5,8 +5,6 @@ LoRA fine-tuning of Qwen2-0.5B-Instruct on IntentCONANv2.
 Only the low-rank adapter matrices A and B are updated (~0.7% of params).
 Base model weights are completely frozen.
 
-Compare results against full_finetune.py to measure the efficiency tradeoff.
-
 Usage (via main.py):
     python main.py --train_lora
 
@@ -14,8 +12,8 @@ Usage (directly):
     python training/lora.py
 """
 
-import os
 import logging
+import os
 
 import torch
 from datasets import load_from_disk
@@ -23,7 +21,6 @@ from peft import LoraConfig, TaskType, get_peft_model
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
-    DataCollatorForSeq2Seq,
     EarlyStoppingCallback,
     Trainer,
     TrainingArguments,
@@ -32,6 +29,8 @@ from transformers import (
 from config import config
 
 logger = logging.getLogger(__name__)
+
+os.environ["HF_HUB_OFFLINE"] = "1"
 
 MODEL_ID         = config.get("model.id")
 PROCESSED_DIR    = config.get("paths.processed_data_dir")
@@ -55,9 +54,9 @@ OUTPUT_DIR       = os.path.join(CHECKPOINTS_DIR, RUN_NAME)
 
 def load_model_and_tokenizer():
     """
-    Load base model in float32 and wrap with LoRA adapters.
-    Base weights are frozen automatically by get_peft_model().
-    Only A and B matrices (~3.4M params) are trainable.
+    Load base model in float16 and wrap with LoRA adapters.
+    fp16 load halves VRAM and speeds up every forward pass.
+    Base weights frozen automatically by get_peft_model().
     """
     logger.info(f"Loading base model: {MODEL_ID}")
 
@@ -67,7 +66,7 @@ def load_model_and_tokenizer():
 
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
-        torch_dtype=torch.float32,
+        torch_dtype=torch.float16,
         device_map="auto",
     )
     model.config.use_cache = False
@@ -75,16 +74,14 @@ def load_model_and_tokenizer():
 
     lora_config = LoraConfig(
         task_type      = TaskType.CAUSAL_LM,
-        r              = LORA_R,           # rank — controls adapter capacity
-        lora_alpha     = LORA_ALPHA,       # scaling factor (typically 2× rank)
+        r              = LORA_R,
+        lora_alpha     = LORA_ALPHA,
         lora_dropout   = LORA_DROPOUT,
-        target_modules = LORA_TARGETS,     # which attention matrices to adapt
-        bias           = "none",           # don't adapt bias terms
+        target_modules = LORA_TARGETS,
+        bias           = "none",
     )
-
     model = get_peft_model(model, lora_config)
 
-    # Log trainable vs frozen params
     total_params     = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logger.info(f"Total params    : {total_params:,}")
@@ -118,6 +115,7 @@ def load_dataset():
     logger.info(f"Val   : {len(val_dataset):,} samples")
     return train_dataset, val_dataset
 
+
 def build_training_args() -> TrainingArguments:
     return TrainingArguments(
         output_dir                  = OUTPUT_DIR,
@@ -132,9 +130,11 @@ def build_training_args() -> TrainingArguments:
         per_device_train_batch_size = BATCH_SIZE,
         per_device_eval_batch_size  = BATCH_SIZE,
         gradient_accumulation_steps = GRAD_ACCUM_STEPS,
-        gradient_checkpointing      = True,
+        gradient_checkpointing      = False,
         fp16                        = True,
         optim                       = "adamw_torch_fused",
+        dataloader_num_workers      = 4,
+        dataloader_pin_memory       = True,
         eval_strategy               = "steps",
         eval_steps                  = SAVE_STEPS,
         save_strategy               = "steps",
@@ -155,23 +155,16 @@ def train(output_dir: str = None) -> None:
         OUTPUT_DIR = output_dir
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    model, tokenizer     = load_model_and_tokenizer()
+    model, tokenizer           = load_model_and_tokenizer()
     train_dataset, val_dataset = load_dataset()
 
-    data_collator = DataCollatorForSeq2Seq(
-        tokenizer          = tokenizer,
-        model              = model,
-        padding            = True,
-        pad_to_multiple_of = 8,
-    )
-
+    # No custom collator — data already padded to MAX_LENGTH in preprocessing
     trainer = Trainer(
         model            = model,
         args             = build_training_args(),
         train_dataset    = train_dataset,
         eval_dataset     = val_dataset,
         processing_class = tokenizer,
-        data_collator    = data_collator,
         callbacks        = [EarlyStoppingCallback(early_stopping_patience=3)],
     )
 
@@ -181,7 +174,6 @@ def train(output_dir: str = None) -> None:
     logger.info(f"Target modules  : {LORA_TARGETS}")
     logger.info(f"Effective batch : {BATCH_SIZE * GRAD_ACCUM_STEPS}")
 
-    # Resume from checkpoint if one exists
     last_checkpoint = None
     if os.path.isdir(OUTPUT_DIR):
         checkpoints = [
@@ -195,7 +187,6 @@ def train(output_dir: str = None) -> None:
 
     train_result = trainer.train(resume_from_checkpoint=last_checkpoint)
 
-    # Save adapter weights only (not the full model — much smaller)
     logger.info("Saving LoRA adapter …")
     model.save_pretrained(OUTPUT_DIR)
     tokenizer.save_pretrained(OUTPUT_DIR)

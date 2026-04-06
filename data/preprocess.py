@@ -8,6 +8,7 @@ each sample into ChatML prompts, and saves train/val/test splits as Arrow datase
 import os
 import logging
 import statistics
+import numpy as np
 
 from transformers import AutoTokenizer
 from datasets import DatasetDict, concatenate_datasets, load_dataset
@@ -95,7 +96,7 @@ def tokenize(batch: dict, tokenizer: AutoTokenizer) -> dict:
 
         label_ids = [-100] * n_masked + input_ids[n_masked:]
         label_ids = (label_ids + [-100] * MAX_LENGTH)[:MAX_LENGTH]
-        labels.append(label_ids)
+        labels.append(np.array(label_ids, dtype=np.int64))
 
     encodings["labels"] = labels
     return encodings

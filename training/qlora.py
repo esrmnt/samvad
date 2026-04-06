@@ -6,13 +6,8 @@ QLoRA fine-tuning of Qwen2-0.5B-Instruct on IntentCONANv2.
 QLoRA = LoRA + 4-bit quantization of the base model.
 Three innovations from the QLoRA paper (Dettmers et al. 2023):
   1. NF4 (NormalFloat4) — optimal quantization for normally distributed weights
-  2. Double quantization — quantize the quantization constants to save ~0.37 bits/param
+  2. Double quantization — quantize the quantization constants (~0.37 bits saved/param)
   3. Paged optimizer — offloads optimizer states to CPU RAM during memory spikes
-
-The base model is loaded in 4-bit NF4, frozen, then dequantized on-the-fly
-to bfloat16 for computation. LoRA adapters train in bfloat16 alongside it.
-
-Memory footprint: ~3-4GB vs ~8GB for standard LoRA.
 
 Usage (via main.py):
     python main.py --train_qlora
@@ -20,8 +15,9 @@ Usage (via main.py):
 Usage (directly):
     python training/qlora.py
 """
-import os
+
 import logging
+import os
 
 import torch
 from datasets import load_from_disk
@@ -30,7 +26,6 @@ from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
     BitsAndBytesConfig,
-    DataCollatorForSeq2Seq,
     EarlyStoppingCallback,
     Trainer,
     TrainingArguments,
@@ -39,6 +34,9 @@ from transformers import (
 from config import config
 
 logger = logging.getLogger(__name__)
+
+# ── Disable HuggingFace network calls during training ─────────────────────────
+os.environ["HF_HUB_OFFLINE"] = "1"
 
 MODEL_ID         = config.get("model.id")
 PROCESSED_DIR    = config.get("paths.processed_data_dir")
@@ -64,29 +62,18 @@ QUANT_TYPE       = config.get("qlora.quant_type")
 RUN_NAME         = "qlora"
 OUTPUT_DIR       = os.path.join(CHECKPOINTS_DIR, RUN_NAME)
 
-
 def build_bnb_config() -> BitsAndBytesConfig:
     """
-    Build the 4-bit quantisation config (BitsAndBytes).
+    4-bit NF4 quantisation config.
 
-    bnb_4bit_quant_type="nf4"
-        NormalFloat4 — information-theoretically optimal for weights that
-        follow a normal distribution (which pretrained LLM weights do).
-        Superior to fp4 by ~1 percentage point on downstream tasks.
-
-    bnb_4bit_use_double_quant=True
-        Quantises the quantisation constants themselves, saving ~0.37
-        bits/param (~3GB on a 65B model).
-
-    bnb_4bit_compute_dtype=torch.bfloat16
-        Weights are stored in 4-bit but dequantised to bfloat16 on-the-fly
-        for the actual matrix multiplications. Never train in 4-bit directly.
+    Weights stored in 4-bit NF4, dequantised to bfloat16 on-the-fly
+    for matrix multiplications. Never computed in 4-bit directly.
     """
     return BitsAndBytesConfig(
         load_in_4bit              = True,
         bnb_4bit_quant_type       = QUANT_TYPE,       # "nf4"
         bnb_4bit_use_double_quant = DOUBLE_QUANT,     # True
-        bnb_4bit_compute_dtype    = torch.bfloat16,   # dequant target dtype
+        bnb_4bit_compute_dtype    = torch.bfloat16,
     )
 
 def load_model_and_tokenizer():
@@ -94,7 +81,7 @@ def load_model_and_tokenizer():
     Load base model in 4-bit NF4, prepare for k-bit training,
     then inject LoRA adapters.
 
-    prepare_model_for_kbit_training() does three things:
+    prepare_model_for_kbit_training():
       - Casts layernorm layers to float32 for stability
       - Freezes all base model parameters
       - Enables gradient checkpointing
@@ -107,16 +94,15 @@ def load_model_and_tokenizer():
 
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
-        quantization_config = build_bnb_config(),  # 4-bit NF4
+        quantization_config = build_bnb_config(),
         device_map          = "auto",
     )
     model.config.use_cache = False
     model.config.pretraining_tp = 1
 
-    # Prepare for k-bit training — must be called before get_peft_model()
+    # Must be called before get_peft_model()
     model = prepare_model_for_kbit_training(model)
 
-    # Inject LoRA adapters — identical config to lora.py
     lora_config = LoraConfig(
         task_type      = TaskType.CAUSAL_LM,
         r              = LORA_R,
@@ -166,10 +152,8 @@ def build_training_args() -> TrainingArguments:
     """
     QLoRA-specific training args.
 
-    Key differences from full FT and LoRA:
-    - fp16=False, bf16=True  : QLoRA requires bfloat16, not float16
-    - optim="paged_adamw_32bit" : paged optimizer offloads states to CPU
-                                   during memory spikes — essential for QLoRA
+    fp16=False, bf16=True  — QLoRA requires bfloat16 not float16
+    paged_adamw_32bit      — offloads optimizer states to CPU during spikes
     """
     return TrainingArguments(
         output_dir                  = OUTPUT_DIR,
@@ -185,9 +169,11 @@ def build_training_args() -> TrainingArguments:
         per_device_eval_batch_size  = BATCH_SIZE,
         gradient_accumulation_steps = GRAD_ACCUM_STEPS,
         gradient_checkpointing      = True,
-        fp16                        = False,           # must be False for QLoRA
-        bf16                        = True,            # QLoRA computes in bfloat16
-        optim                       = "paged_adamw_32bit",  # paged optimizer
+        fp16                        = False,
+        bf16                        = True,
+        optim                       = "paged_adamw_32bit",
+        dataloader_num_workers      = 4,
+        dataloader_pin_memory       = True,
         eval_strategy               = "steps",
         eval_steps                  = SAVE_STEPS,
         save_strategy               = "steps",
@@ -211,20 +197,13 @@ def train(output_dir: str = None) -> None:
     model, tokenizer           = load_model_and_tokenizer()
     train_dataset, val_dataset = load_dataset()
 
-    data_collator = DataCollatorForSeq2Seq(
-        tokenizer          = tokenizer,
-        model              = model,
-        padding            = True,
-        pad_to_multiple_of = 8,
-    )
-
+    # No custom collator — data already padded to MAX_LENGTH in preprocessing
     trainer = Trainer(
         model            = model,
         args             = build_training_args(),
         train_dataset    = train_dataset,
         eval_dataset     = val_dataset,
         processing_class = tokenizer,
-        data_collator    = data_collator,
         callbacks        = [EarlyStoppingCallback(early_stopping_patience=3)],
     )
 
@@ -247,7 +226,6 @@ def train(output_dir: str = None) -> None:
 
     train_result = trainer.train(resume_from_checkpoint=last_checkpoint)
 
-    # Save adapter weights only
     logger.info("Saving QLoRA adapter …")
     model.save_pretrained(OUTPUT_DIR)
     tokenizer.save_pretrained(OUTPUT_DIR)

@@ -10,6 +10,9 @@ Usage (from main entry point):
     python main.py --preprocess                         # saves to default path
     python main.py --preprocess --preview               # preview mode
     python main.py --preprocess --output_dir /path      # custom output dir
+    python main.py --train_full                         # run full fine-tuning
+    python main.py --train_lora                         # run LoRA fine-tuning
+    python main.py --train_qlora                        # run QLoRA fine-tuning
 """
 
 import os
