@@ -23,7 +23,9 @@ from config import config
 from data.preprocess import preprocess
 from training.lora import train as train_lora
 from training.qlora import train as train_qlora
+from training.prefix_tuning import train as train_prefix
 from training.full_finetune import train as full_finetune
+
 
 def setup_logging(log_level: str = "INFO") -> None:
     """Configure logging for the project.
@@ -74,6 +76,10 @@ def main() -> None:
         "--train_qlora", action="store_true",
         help="Run QLoRA fine-tuning (training/qlora.py)"
     )
+    parser.add_argument("--train_prefix", action="store_true", 
+        help="Run prefix tuning (training/prefix_tuning.py)"
+    )
+
     args = parser.parse_args()
     
     setup_logging()
@@ -112,6 +118,11 @@ def main() -> None:
         train_qlora()
         return
 
+    # Run prefix tuning if requested
+    if args.train_prefix:
+        train_prefix()
+        return
+    
     if not args.preprocess and not args.train_full:
         logger.info("Setup complete. Ready to run your code!")
         logger.info("Tip: Use --preprocess to run data preprocessing")
