@@ -22,13 +22,13 @@ Usage (via main.py):
 Usage (directly):
     python training/prefix_tuning.py
 """
-
-import logging
 import os
-
 import torch
+import logging
+
 from datasets import load_from_disk
 from peft import (
+    PeftModel,
     PrefixTuningConfig,
     TaskType,
     get_peft_model,
@@ -40,6 +40,7 @@ from transformers import (
     EarlyStoppingCallback,
     Trainer,
     TrainingArguments,
+    trainer,
 )
 
 from config import config
@@ -167,7 +168,7 @@ def build_training_args() -> TrainingArguments:
         save_strategy               = "steps",
         save_steps                  = SAVE_STEPS,
         save_total_limit            = 2,
-        load_best_model_at_end      = True,
+        load_best_model_at_end      = False,      
         metric_for_best_model       = "eval_loss",
         greater_is_better           = False,
         seed                        = 42,
@@ -220,6 +221,19 @@ def train(output_dir: str = None) -> None:
             logger.info(f"Resuming from: {last_checkpoint}")
 
     train_result = trainer.train(resume_from_checkpoint=last_checkpoint)
+
+    # Manually load best checkpoint — load_best_model_at_end is incompatible
+    # with PREFIX_TUNING so we do this ourselves
+    best_checkpoint = trainer.state.best_model_checkpoint
+    if best_checkpoint:
+        logger.info(f"Loading best checkpoint from: {best_checkpoint}")
+
+        model = PeftModel.from_pretrained(
+            model.base_model.model,   # unwrap to base model first
+            best_checkpoint
+        )
+    else:
+        logger.info("No best checkpoint found — using final model")
 
     # Save prefix encoder weights only — very small (~few MB)
     logger.info("Saving prefix adapter …")
