@@ -22,13 +22,14 @@ Usage (via main.py):
 Usage (directly):
     python training/prefix_tuning.py
 """
-import os
-import torch
-import logging
 
+import json
+import logging
+import os
+
+import torch
 from datasets import load_from_disk
 from peft import (
-    PeftModel,
     PrefixTuningConfig,
     TaskType,
     get_peft_model,
@@ -40,38 +41,38 @@ from transformers import (
     EarlyStoppingCallback,
     Trainer,
     TrainingArguments,
-    trainer,
 )
 
 from config import config
 
 logger = logging.getLogger(__name__)
 
-MODEL_ID             = config.get("model.id")
-PROCESSED_DIR        = config.get("paths.processed_data_dir")
-CHECKPOINTS_DIR      = config.get("paths.checkpoints_dir")
-LEARNING_RATE        = float(config.get("training.learning_rate"))
-NUM_EPOCHS           = int(config.get("training.num_epochs"))
-BATCH_SIZE           = int(config.get("training.batch_size"))
-GRAD_ACCUM_STEPS     = int(config.get("training.grad_accum_steps"))
-WARMUP_STEPS         = 100
-LOGGING_STEPS        = int(config.get("training.logging_steps"))
-SAVE_STEPS           = int(config.get("training.save_steps"))
-LR_SCHEDULER         = config.get("training.lr_scheduler")
-NUM_VIRTUAL_TOKENS   = int(config.get("prefix.num_virtual_tokens"))
 
-RUN_NAME             = "prefix-tuning"
-OUTPUT_DIR           = os.path.join(CHECKPOINTS_DIR, RUN_NAME)
+MODEL_ID           = config.get("model.id")
+PROCESSED_DIR      = config.get("paths.processed_data_dir")
+CHECKPOINTS_DIR    = config.get("paths.checkpoints_dir")
+LEARNING_RATE      = float(config.get("training.learning_rate"))
+NUM_EPOCHS         = int(config.get("training.num_epochs"))
+BATCH_SIZE         = int(config.get("training.batch_size"))
+GRAD_ACCUM_STEPS   = int(config.get("training.grad_accum_steps"))
+WARMUP_STEPS       = 100
+LOGGING_STEPS      = int(config.get("training.logging_steps"))
+SAVE_STEPS         = int(config.get("training.save_steps"))
+LR_SCHEDULER       = config.get("training.lr_scheduler")
+NUM_VIRTUAL_TOKENS = int(config.get("prefix.num_virtual_tokens"))
+
+RUN_NAME           = "prefix-tuning"
+OUTPUT_DIR         = os.path.join(CHECKPOINTS_DIR, RUN_NAME)
+
 
 
 def load_model_and_tokenizer():
     """
     Load base model and wrap with Prefix Tuning config.
 
-    PrefixTuningConfig creates a small MLP (called the prefix encoder)
-    that maps a set of virtual token indices to prefix vectors.
-    These vectors are prepended to the K and V tensors at every
-    attention layer during the forward pass.
+    PrefixTuningConfig creates a small MLP (the prefix encoder) that maps
+    virtual token indices to prefix vectors. These vectors are prepended
+    to the K and V tensors at every attention layer during the forward pass.
 
     The base model weights are frozen automatically by get_peft_model().
     Only the prefix encoder MLP parameters are trainable.
@@ -84,17 +85,17 @@ def load_model_and_tokenizer():
 
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
-        torch_dtype = torch.float32,
-        device_map  = "auto",
+        torch_dtype=torch.float32,
+        device_map="auto",
     )
     model.config.use_cache = False
 
     prefix_config = PrefixTuningConfig(
         task_type          = TaskType.CAUSAL_LM,
-        num_virtual_tokens = NUM_VIRTUAL_TOKENS,   # 20 — from config.yaml
+        num_virtual_tokens = NUM_VIRTUAL_TOKENS,
         # prefix_projection=True adds an MLP reparameterisation layer on top
-        # of the raw prefix vectors. This stabilises training and generally
-        # gives better results than raw prefix vectors (prefix_projection=False).
+        # of the raw prefix vectors. This stabilises training and gives better
+        # results than raw prefix vectors (prefix_projection=False).
         prefix_projection  = True,
     )
 
@@ -102,11 +103,13 @@ def load_model_and_tokenizer():
 
     total_params     = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    logger.info(f"Total params         : {total_params:,}")
-    logger.info(f"Trainable params     : {trainable_params:,} ({100 * trainable_params / total_params:.4f}%)")
-    logger.info(f"Virtual tokens       : {NUM_VIRTUAL_TOKENS}")
+    logger.info(f"Total params     : {total_params:,}")
+    logger.info(f"Trainable params : {trainable_params:,} ({100 * trainable_params / total_params:.4f}%)")
+    logger.info(f"Virtual tokens   : {NUM_VIRTUAL_TOKENS}")
 
     return model, tokenizer
+
+
 
 def load_dataset():
     """Load preprocessed Arrow dataset and strip non-tensor columns."""
@@ -135,17 +138,18 @@ def load_dataset():
     return train_dataset, val_dataset
 
 
+
 def build_training_args() -> TrainingArguments:
     """
     Prefix Tuning training args.
 
-    Key difference from LoRA:
-    - gradient_checkpointing=False
-        Prefix Tuning is incompatible with gradient checkpointing in the
-        current PEFT implementation. The prefix vectors need to be in the
-        computation graph during the backward pass, which conflicts with
-        activation recomputation. Memory usage is still low because
-        almost no parameters are being updated.
+    Two key differences from LoRA:
+    - gradient_checkpointing=False  : incompatible with prefix tuning —
+                                      prefix vectors must stay in the
+                                      computation graph during backward pass.
+    - load_best_model_at_end=False  : PEFT cannot reload prompt learning
+                                      adapters the same way as LoRA. We
+                                      handle best checkpoint saving manually.
     """
     return TrainingArguments(
         output_dir                  = OUTPUT_DIR,
@@ -168,7 +172,7 @@ def build_training_args() -> TrainingArguments:
         save_strategy               = "steps",
         save_steps                  = SAVE_STEPS,
         save_total_limit            = 2,
-        load_best_model_at_end      = False,      
+        load_best_model_at_end      = False,       # incompatible with prefix tuning
         metric_for_best_model       = "eval_loss",
         greater_is_better           = False,
         seed                        = 42,
@@ -177,12 +181,53 @@ def build_training_args() -> TrainingArguments:
     )
 
 
+
+def find_last_checkpoint(output_dir: str):
+    """Return path to the most recent checkpoint, or None if none exist."""
+    if not os.path.isdir(output_dir):
+        return None
+    checkpoints = [
+        os.path.join(output_dir, d)
+        for d in os.listdir(output_dir)
+        if d.startswith("checkpoint-")
+    ]
+    return max(checkpoints, key=os.path.getmtime) if checkpoints else None
+
+
+def training_already_complete(checkpoint_path: str) -> bool:
+    """
+    Read trainer_state.json from the checkpoint to determine whether
+    training finished. Returns True if epoch >= NUM_EPOCHS.
+
+    This is the authoritative check — same logic used across all four
+    trainers in the project for consistency.
+    """
+    if checkpoint_path is None:
+        return False
+    state_path = os.path.join(checkpoint_path, "trainer_state.json")
+    if not os.path.exists(state_path):
+        return False
+    with open(state_path) as f:
+        state = json.load(f)
+    return state.get("epoch", 0) >= NUM_EPOCHS
+
+
+
 def train(output_dir: str = None) -> None:
     """Run Prefix Tuning fine-tuning."""
     global OUTPUT_DIR
     if output_dir:
         OUTPUT_DIR = output_dir
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    last_checkpoint = find_last_checkpoint(OUTPUT_DIR)
+    if training_already_complete(last_checkpoint):
+        logger.info(f"Training already completed at epoch {NUM_EPOCHS}. Skipping.")
+        logger.info(f"Adapter already saved at: {OUTPUT_DIR}")
+        return
+
+    if last_checkpoint:
+        logger.info(f"Resuming from checkpoint: {last_checkpoint}")
 
     model, tokenizer           = load_model_and_tokenizer()
     train_dataset, val_dataset = load_dataset()
@@ -205,39 +250,26 @@ def train(output_dir: str = None) -> None:
     )
 
     logger.info("Starting Prefix Tuning …")
-    logger.info(f"Virtual tokens  : {NUM_VIRTUAL_TOKENS}")
+    logger.info(f"Virtual tokens   : {NUM_VIRTUAL_TOKENS}")
     logger.info(f"Prefix projection: True (MLP reparameterisation)")
-    logger.info(f"Effective batch : {BATCH_SIZE * GRAD_ACCUM_STEPS}")
-
-    last_checkpoint = None
-    if os.path.isdir(OUTPUT_DIR):
-        checkpoints = [
-            os.path.join(OUTPUT_DIR, d)
-            for d in os.listdir(OUTPUT_DIR)
-            if d.startswith("checkpoint-")
-        ]
-        if checkpoints:
-            last_checkpoint = max(checkpoints, key=os.path.getmtime)
-            logger.info(f"Resuming from: {last_checkpoint}")
+    logger.info(f"Effective batch  : {BATCH_SIZE * GRAD_ACCUM_STEPS}")
 
     train_result = trainer.train(resume_from_checkpoint=last_checkpoint)
 
-    # Manually load best checkpoint — load_best_model_at_end is incompatible
-    # with PREFIX_TUNING so we do this ourselves
+    # load_best_model_at_end=False means we copy the best checkpoint files
+    # manually. trainer_state.json records best_model_checkpoint for us.
+    import shutil
     best_checkpoint = trainer.state.best_model_checkpoint
-    if best_checkpoint:
-        logger.info(f"Loading best checkpoint from: {best_checkpoint}")
-
-        model = PeftModel.from_pretrained(
-            model.base_model.model,   # unwrap to base model first
-            best_checkpoint
-        )
+    if best_checkpoint and os.path.isdir(best_checkpoint):
+        logger.info(f"Copying best checkpoint from: {best_checkpoint}")
+        for f in os.listdir(best_checkpoint):
+            src = os.path.join(best_checkpoint, f)
+            dst = os.path.join(OUTPUT_DIR, f)
+            shutil.copy2(src, dst)
     else:
-        logger.info("No best checkpoint found — using final model")
+        logger.info("No best checkpoint recorded — saving current model state.")
+        model.save_pretrained(OUTPUT_DIR)
 
-    # Save prefix encoder weights only — very small (~few MB)
-    logger.info("Saving prefix adapter …")
-    model.save_pretrained(OUTPUT_DIR)
     tokenizer.save_pretrained(OUTPUT_DIR)
 
     metrics = train_result.metrics
