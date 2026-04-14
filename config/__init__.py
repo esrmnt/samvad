@@ -6,16 +6,13 @@ Provides centralized configuration management accessible from anywhere in the pr
 Usage:
     from config import config
     
-    # Attribute access (for sections)
-    model_id = config.model["id"]
-    
     # Dot notation access
     batch_size = config.get("training.batch_size")
+    model_id = config.get("model.id")
 """
 
-from .config import Config, _config_instance
+from .config import config
 
-# Global config instance accessible throughout the project
-config = _config_instance
+__all__ = ["config"]
 
 __all__ = ["config", "Config"]
