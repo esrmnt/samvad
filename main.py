@@ -23,11 +23,16 @@ import argparse
 from typing import Callable, Dict
 
 from config import config
+
 from data.preprocess import preprocess
+
 from training.lora import train as train_lora
 from training.qlora import train as train_qlora
 from training.prefix_tuning import train as train_prefix
 from training.full_finetune import train as train_full_finetune
+
+from evaluation.generate import generate
+from evaluation.evaluate import evaluate
 
 
 def setup_logging(log_level: str = "INFO") -> None:
@@ -87,6 +92,9 @@ def create_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--train_lora", action="store_true", help="Run LoRA fine-tuning")
     parser.add_argument("--train_qlora", action="store_true", help="Run QLoRA fine-tuning")
     parser.add_argument("--train_prefix", action="store_true", help="Run prefix tuning fine-tuning")
+
+    parser.add_argument("--generate",  action="store_true")
+    parser.add_argument("--evaluate",  action="store_true")
     
     return parser
 
@@ -109,7 +117,9 @@ def main() -> None:
         "train_full": train_full_finetune,
         "train_lora": train_lora,
         "train_qlora": train_qlora,
-        "train_prefix": train_prefix
+        "train_prefix": train_prefix,
+        "generate": generate,
+        "evaluate": evaluate,
     }
     
     # Execute requested task
