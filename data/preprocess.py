@@ -18,7 +18,6 @@ from config import config
 
 logger = logging.getLogger(__name__)
 
-
 def build_prompt(
     hate_speech: str,
     cs_type: str,
@@ -183,12 +182,12 @@ def preprocess(output_dir: str = None, preview: bool = False) -> None:
     model_id = config.get("model.id")
     processed_data_dir = config.get("paths.processed_data_dir")
 
-    # 1. Load dataset
+    # Load dataset
     logger.info(f"Loading dataset: {dataset_id}")
     full = load_full_dataset(dataset_id)
     logger.info(f"Total samples: {len(full)}")
 
-    # 2. Split data
+    # Split data
     logger.info(
         f"Splitting — train/val/test "
         f"({int((1-test_size-val_size)*100)}/{int(val_size*100)}/{int(test_size*100)}%)"
@@ -197,7 +196,7 @@ def preprocess(output_dir: str = None, preview: bool = False) -> None:
     for name, ds in splits.items():
         logger.info(f"{name}: {len(ds)} samples")
 
-    # 3. Build prompts
+    # Build prompts
     logger.info("Building prompts …")
     splits = splits.map(
         lambda example: add_prompt(example, system_prompt, assistant_marker),
@@ -210,7 +209,7 @@ def preprocess(output_dir: str = None, preview: bool = False) -> None:
             logger.info(f"\n[Sample {i + 1}]\n{splits['train'][i]['prompt']}\n" + "─" * 60)
         return
 
-    # 4. Tokenize
+    # Tokenize
     logger.info(f"Tokenising with {model_id} …")
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     tokenizer.pad_token = tokenizer.eos_token
@@ -229,7 +228,7 @@ def preprocess(output_dir: str = None, preview: bool = False) -> None:
     # Log statistics
     print_length_stats(tokenized, tokenizer, max_length)
 
-    # 5. Save
+    # Save
     final_output_dir = output_dir or processed_data_dir
     logger.info(f"Saving to {final_output_dir} …")
     os.makedirs(final_output_dir, exist_ok=True)
@@ -242,4 +241,4 @@ def preprocess(output_dir: str = None, preview: bool = False) -> None:
 
     logger.info(f"Done. Directory contents: {sorted(os.listdir(final_output_dir))}")
 
-    print_length_stats(tokenized, tokenizer)
+    print_length_stats(tokenized, tokenizer, max_length)

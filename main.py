@@ -78,43 +78,15 @@ def create_argument_parser() -> argparse.ArgumentParser:
     )
     
     # Preprocessing arguments
-    parser.add_argument(
-        "--preprocess",
-        action="store_true",
-        help="Run data preprocessing pipeline",
-    )
-    parser.add_argument(
-        "--preview",
-        action="store_true",
-        help="Preview sample prompts without saving (used with --preprocess)",
-    )
-    parser.add_argument(
-        "--output_dir",
-        default=None,
-        help="Output directory for processed data (used with --preprocess)",
-    )
+    parser.add_argument("--preprocess", action="store_true", help="Run data preprocessing pipeline")
+    parser.add_argument("--preview", action="store_true", help="Preview sample prompts without saving (used with --preprocess)")
+    parser.add_argument("--output_dir", default=None, help="Output directory for processed data (used with --preprocess)")
     
     # Training arguments
-    parser.add_argument(
-        "--train_full",
-        action="store_true",
-        help="Run full fine-tuning",
-    )
-    parser.add_argument(
-        "--train_lora",
-        action="store_true",
-        help="Run LoRA fine-tuning",
-    )
-    parser.add_argument(
-        "--train_qlora",
-        action="store_true",
-        help="Run QLoRA fine-tuning",
-    )
-    parser.add_argument(
-        "--train_prefix",
-        action="store_true",
-        help="Run prefix tuning fine-tuning",
-    )
+    parser.add_argument("--train_full", action="store_true", help="Run full fine-tuning")
+    parser.add_argument("--train_lora", action="store_true", help="Run LoRA fine-tuning")
+    parser.add_argument("--train_qlora", action="store_true", help="Run QLoRA fine-tuning")
+    parser.add_argument("--train_prefix", action="store_true", help="Run prefix tuning fine-tuning")
     
     return parser
 
@@ -137,7 +109,7 @@ def main() -> None:
         "train_full": train_full_finetune,
         "train_lora": train_lora,
         "train_qlora": train_qlora,
-        "train_prefix": train_prefix,
+        "train_prefix": train_prefix
     }
     
     # Execute requested task
