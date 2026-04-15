@@ -129,13 +129,16 @@ def generate_batch(
     all_generated = []
     device = next(model.parameters()).device
 
+    system_prompt    = config.get("prompts.system_prompt")
+    assistant_marker = config.get("prompts.assistant_marker")
+
     for i in range(0, len(hate_speeches), batch_size):
         batch_hate   = hate_speeches[i : i + batch_size]
         batch_cstype = cs_types[i : i + batch_size]
 
         # Build inference prompts — no answer included
         prompts = [
-            build_prompt(h, c)
+            build_prompt(h, c, system_prompt, assistant_marker)
             for h, c in zip(batch_hate, batch_cstype)
         ]
 
@@ -184,6 +187,9 @@ def generate(model_names: list = None) -> None:
     logger.info(f"Loading test split from: {PROCESSED_DIR}")
     dataset     = load_from_disk(PROCESSED_DIR)
     test_split  = dataset["test"]
+
+    system_prompt     = config.get("prompts.system_prompt")
+    assistant_marker  = config.get("prompts.assistant_marker")
 
     hate_speeches = test_split["hate_speech"]
     cs_types      = test_split["cs_type"]
