@@ -93,8 +93,8 @@ def create_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--train_qlora", action="store_true", help="Run QLoRA fine-tuning")
     parser.add_argument("--train_prefix", action="store_true", help="Run prefix tuning fine-tuning")
 
-    parser.add_argument("--generate",  action="store_true")
-    parser.add_argument("--evaluate",  action="store_true")
+    parser.add_argument("--generate", action="store_true", help="Generate predictions using trained model")
+    parser.add_argument("--evaluate", action="store_true", help="Evaluate model performance on test set")
     
     return parser
 
@@ -103,6 +103,10 @@ def main() -> None:
     """Main entry point for the samvad project."""
     parser = create_argument_parser()
     args = parser.parse_args()
+    
+    # Validate argument dependencies
+    if args.preview and not args.preprocess:
+        parser.error("--preview requires --preprocess to be set")
     
     setup_logging()
     logger = logging.getLogger(__name__)
