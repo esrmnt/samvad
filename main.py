@@ -24,7 +24,7 @@ from typing import Callable, Dict
 
 from config import config
 
-from data.preprocess import preprocess
+from loaders.preprocess import preprocess
 
 from training.lora import train as train_lora
 from training.qlora import train as train_qlora

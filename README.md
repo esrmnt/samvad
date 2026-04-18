@@ -52,7 +52,7 @@ python data/preprocess.py --output_dir ./custom_data_path
 Or import in your code:
 
 ```python
-from data.preprocess import preprocess
+from loaders.preprocess import preprocess
 
 preprocess()                                # uses config defaults
 preprocess(output_dir="./my_data")          # custom output
@@ -148,7 +148,7 @@ samvad/
 │   ├── __init__.py        # Exports global config instance
 │   ├── config.py          # Configuration loader with dot-notation access
 │   └── config.yaml        # All project settings (EDIT THIS)
-├── data/
+├── loaders/
 │   ├── __init__.py
 │   └── preprocess.py      # Data preprocessing and dataset loading
 ├── training/
@@ -178,7 +178,7 @@ The project follows a clean, modular design:
 
 - **`main.py`**: CLI orchestrator that parses arguments and delegates to workflow functions
 - **`config.py`**: Singleton configuration loader with dot-notation access from any module
-- **`data/preprocess.py`**: Data loading, preprocessing, and Arrow dataset generation
+- **`loaders/preprocess.py`**: Data loading, preprocessing, and Arrow dataset generation
 - **`training/`**: Modular training implementations (full, LoRA, QLoRA) using HuggingFace Trainer
 - **`dataset/`**: Artifact storage (processed data, model checkpoints, training results)
 

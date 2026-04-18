@@ -30,7 +30,7 @@ from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 from config import config
-from data.preprocess import build_prompt
+from loaders.preprocess import build_prompt
 
 logger = logging.getLogger(__name__)
 
