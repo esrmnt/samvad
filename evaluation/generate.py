@@ -5,10 +5,10 @@ Runs inference on the held-out test set using all four fine-tuned models
 and saves the generated counterspeech responses to CSV files.
 
 Each model gets its own output file:
-    results/generated/full_finetune.csv
-    results/generated/lora.csv
-    results/generated/qlora.csv
-    results/generated/prefix_tuning.csv
+    dataset/results/{model_slug}/generated/full_finetune.csv
+    dataset/results/{model_slug}/generated/lora.csv
+    dataset/results/{model_slug}/generated/qlora.csv
+    dataset/results/{model_slug}/generated/prefix_tuning.csv
 
 Each CSV has columns:
     hate_speech | cs_type | reference | generated
@@ -30,15 +30,13 @@ from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 from config import config
-from data.preprocess import build_prompt
+from loaders.preprocess import build_prompt
 
 logger = logging.getLogger(__name__)
 
 MODEL_ID        = config.get("model.id")
-PROCESSED_DIR   = config.get("paths.processed_data_dir")
-CHECKPOINTS_DIR = config.get("paths.checkpoints_dir")
-RESULTS_DIR     = config.get("paths.results_dir")
-GENERATED_DIR   = os.path.join(RESULTS_DIR, "generated")
+PROCESSED_DIR   = config.processed_data_dir()
+GENERATED_DIR   = config.generated_dir()
 
 MAX_NEW_TOKENS  = int(config.get("generation.max_new_tokens"))
 TEMPERATURE     = float(config.get("generation.temperature"))
@@ -47,10 +45,10 @@ DO_SAMPLE       = bool(config.get("generation.do_sample"))
 
 # Model registry — name → checkpoint path and loading strategy
 MODELS = {
-    "full_finetune" : {"path": os.path.join(CHECKPOINTS_DIR, "full-finetune"),  "type": "full"},
-    "lora"          : {"path": os.path.join(CHECKPOINTS_DIR, "lora"),           "type": "peft"},
-    "qlora"         : {"path": os.path.join(CHECKPOINTS_DIR, "qlora"),          "type": "qlora"},
-    "prefix_tuning" : {"path": os.path.join(CHECKPOINTS_DIR, "prefix-tuning"),  "type": "peft"},
+    "full_finetune" : {"path": config.checkpoint_dir("full-finetune"),  "type": "full"},
+    "lora"          : {"path": config.checkpoint_dir("lora"),           "type": "peft"},
+    "qlora"         : {"path": config.checkpoint_dir("qlora"),          "type": "qlora"},
+    "prefix_tuning" : {"path": config.checkpoint_dir("prefix-tuning"),  "type": "peft"},
 }
 
 

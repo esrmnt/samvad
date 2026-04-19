@@ -180,7 +180,7 @@ def preprocess(output_dir: str = None, preview: bool = False) -> None:
     seed = config.get("data.seed")
     dataset_id = config.get("dataset.id")
     model_id = config.get("model.id")
-    processed_data_dir = config.get("paths.processed_data_dir")
+    processed_data_dir = config.processed_data_dir()
 
     # Load dataset
     logger.info(f"Loading dataset: {dataset_id}")
