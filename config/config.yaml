@@ -1,7 +1,5 @@
 # Model & Dataset
 model:
-  id: "Qwen/Qwen2-0.5B-Instruct"
-  slug: "qwen2-0.5b-instruct"
   name: "qwen"
 models:
   qwen:

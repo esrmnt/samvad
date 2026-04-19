@@ -241,9 +241,7 @@ To use different models or datasets, update `config/config.yaml`:
 
 ```yaml
 model:
-  id: "meta-llama/Llama-2-7b"  # Any model from Hugging Face Hub
-  slug: "llama-2-7b"           # Folder name under dataset artifacts
-  name: "llama"
+  name: "llama"                # Active model alias
 models:
   qwen:
     id: "Qwen/Qwen2-0.5B-Instruct"

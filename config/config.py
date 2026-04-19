@@ -49,6 +49,7 @@ class Config:
         with open(self.config_path, "r") as f:
             data = yaml.safe_load(f)
             self._config_dict = data if data else {}
+        self.select_model(self.get("model.name"))
 
     def get(self, key: str, default: Any = None) -> Any:
         """Get a config value using dot notation.
@@ -90,14 +91,11 @@ class Config:
             choices = ", ".join(self.model_names()) or "none configured"
             raise ValueError(f"Unknown model '{model_name}'. Available models: {choices}")
 
-        selected = models[model_name]
+        selected = dict(models[model_name])
         model_config = self._config_dict.setdefault("model", {})
+        model_config.clear()
+        model_config.update(selected)
         model_config["name"] = model_name
-        model_config["id"] = selected["id"]
-        if selected.get("slug"):
-            model_config["slug"] = selected["slug"]
-        else:
-            model_config.pop("slug", None)
 
     def model_slug(self) -> str:
         """Return the folder-safe model identifier used for artifacts."""
