@@ -9,6 +9,8 @@ Learns a small set of virtual tokens while keeping the base model frozen.
 
 import logging
 import os
+import json
+import shutil
 
 import torch
 from peft import PrefixTuningConfig, TaskType, get_peft_model
@@ -44,6 +46,19 @@ NUM_VIRTUAL_TOKENS = int(config.get("prefix.num_virtual_tokens"))
 RUN_NAME = "prefix-tuning"
 OUTPUT_DIR = config.checkpoint_dir(RUN_NAME)
 
+ROOT_ARTIFACTS = {
+    "README.md",
+    "adapter_config.json",
+    "adapter_model.bin",
+    "adapter_model.safetensors",
+    "chat_template.jinja",
+    "special_tokens_map.json",
+    "tokenizer.json",
+    "tokenizer.model",
+    "tokenizer_config.json",
+    "trainer_state.json",
+}
+
 
 def load_model_and_tokenizer():
     """Load base model and attach Prefix Tuning adapters."""
@@ -62,10 +77,68 @@ def load_model_and_tokenizer():
     return model, tokenizer
 
 
+def has_final_artifacts(output_dir: str) -> bool:
+    """Return True when the method root has a loadable prefix adapter."""
+    return (
+        os.path.exists(os.path.join(output_dir, "adapter_config.json"))
+        and (
+            os.path.exists(os.path.join(output_dir, "adapter_model.safetensors"))
+            or os.path.exists(os.path.join(output_dir, "adapter_model.bin"))
+        )
+        and os.path.exists(os.path.join(output_dir, "tokenizer_config.json"))
+    )
+
+
+def checkpoint_is_complete(checkpoint_path: str) -> bool:
+    """Return True when a checkpoint contains adapter and tokenizer artifacts."""
+    if not checkpoint_path:
+        return False
+    return has_final_artifacts(checkpoint_path)
+
+
+def checkpoint_training_finished(checkpoint_path: str) -> bool:
+    """Return True when trainer state says the checkpoint reached max steps."""
+    state_path = os.path.join(checkpoint_path, "trainer_state.json")
+    if not os.path.exists(state_path):
+        return False
+
+    with open(state_path) as f:
+        state = json.load(f)
+
+    max_steps = state.get("max_steps")
+    global_step = state.get("global_step", 0)
+    return bool(max_steps and global_step >= max_steps)
+
+
+def export_checkpoint_artifacts(checkpoint_path: str, output_dir: str) -> None:
+    """Copy loadable adapter/tokenizer artifacts from a checkpoint to the method root."""
+    if not checkpoint_is_complete(checkpoint_path):
+        return
+
+    os.makedirs(output_dir, exist_ok=True)
+    logger.info(f"Exporting Prefix artifacts from {checkpoint_path} to {output_dir}")
+
+    for filename in ROOT_ARTIFACTS:
+        src = os.path.join(checkpoint_path, filename)
+        if os.path.exists(src):
+            shutil.copy2(src, os.path.join(output_dir, filename))
+
+
 def train(output_dir: str = None) -> None:
     """Run Prefix Tuning fine-tuning."""
     final_output_dir = output_dir or OUTPUT_DIR
     os.makedirs(final_output_dir, exist_ok=True)
+
+    last_checkpoint = find_last_checkpoint(final_output_dir)
+    if (
+        last_checkpoint
+        and not has_final_artifacts(final_output_dir)
+        and checkpoint_training_finished(last_checkpoint)
+    ):
+        export_checkpoint_artifacts(last_checkpoint, final_output_dir)
+        if has_final_artifacts(final_output_dir):
+            logger.info(f"Prefix adapter already available at: {final_output_dir}")
+            return
 
     model, tokenizer = load_model_and_tokenizer()
     train_dataset, val_dataset = load_dataset(PROCESSED_DIR)
@@ -101,7 +174,6 @@ def train(output_dir: str = None) -> None:
         virtual_tokens=NUM_VIRTUAL_TOKENS,
     )
 
-    last_checkpoint = find_last_checkpoint(final_output_dir)
     if last_checkpoint:
         logger.info(f"Resuming from: {last_checkpoint}")
 
