@@ -1,7 +1,9 @@
 """
 samvad/training/lora.py
 
-LoRA fine-tuning of Qwen2-0.5B-Instruct on IntentCONANv2.
+LoRA fine-tuning for decoder-only (causal) language models on IntentCONANv2.
+Tested with Qwen, but designed to support other architectures (e.g., LLaMA, Mistral) with appropriate configuration (e.g., target modules).
+
 Only the low-rank adapter matrices A and B are updated (~0.7% of params).
 Base model weights are completely frozen.
 

@@ -65,13 +65,6 @@ def create_argument_parser() -> argparse.ArgumentParser:
     )
     model_names = config.model_names()
 
-    parser.add_argument(
-        "--model",
-        default=config.get("model.name"),
-        choices=model_names or None,
-        help="Model alias from config/config.yaml",
-    )
-    
     # Preprocessing arguments
     parser.add_argument("--preprocess", action="store_true", help="Run data preprocessing pipeline")
     parser.add_argument("--preview", action="store_true", help="Preview sample prompts without saving (used with --preprocess)")
@@ -79,11 +72,16 @@ def create_argument_parser() -> argparse.ArgumentParser:
     
     # Training arguments
     parser.add_argument("--train", action="store_true", help="Run model training")
-    parser.add_argument(
-        "--method",
+    parser.add_argument("--method",
         choices=["full", "full_finetune", "lora", "qlora", "prefix", "prefix_tuning"],
         help="Training method to use with --train",
     )
+    parser.add_argument("--model",
+        default=config.get("model.name"),
+        choices=model_names or None,
+        help="Model alias from config/config.yaml",
+    )
+    
 
     parser.add_argument("--generate", action="store_true", help="Generate predictions using trained model")
     parser.add_argument("--evaluate", action="store_true", help="Evaluate model performance on test set")
@@ -95,11 +93,9 @@ def normalize_method(method: Optional[str]) -> Optional[str]:
     """Normalize CLI method aliases to internal training keys."""
     method_aliases = {
         "full": "full_finetune",
-        "full_finetune": "full_finetune",
         "lora": "lora",
         "qlora": "qlora",
-        "prefix": "prefix_tuning",
-        "prefix_tuning": "prefix_tuning",
+        "prefix": "prefix_tuning"
     }
     return method_aliases.get(method) if method else None
 

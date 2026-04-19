@@ -1,8 +1,9 @@
 """
 samvad/training/full_finetune.py
 
-Full fine-tuning of Qwen2-0.5B-Instruct on IntentCONANv2.
+Pipeline for decoder-only (causal) language models.
 All model weights are updated — no parameter freezing.
+Tested with Qwen, but designed to support other architectures (e.g., LLaMA, Mistral) with appropriate configuration (e.g., target modules).
 
 This is the baseline. All PEFT methods (LoRA, QLoRA, Prefix) are
 compared against the results produced here.

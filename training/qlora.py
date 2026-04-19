@@ -1,7 +1,9 @@
 """
 samvad/training/qlora.py
 
-QLoRA fine-tuning of Qwen2-0.5B-Instruct on IntentCONANv2.
+QLoRA fine-tuning for decoder-only (causal) language models on IntentCONANv2.
+
+Tested with Qwen, but designed to support other architectures (e.g., LLaMA, Mistral) with appropriate configuration (e.g., target modules).
 
 QLoRA = LoRA + 4-bit quantization of the base model.
 Three innovations from the QLoRA paper (Dettmers et al. 2023):
