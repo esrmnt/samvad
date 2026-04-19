@@ -4,7 +4,7 @@ model:
 models:
   qwen:
     id: "Qwen/Qwen2-0.5B-Instruct"
-    slug: "qwen2-0.5b-instruct"
+    slug: "qwen2-0"
 dataset:
   id: "Aswini123/IntentCONANv2"
 
