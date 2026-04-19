@@ -72,17 +72,10 @@ def create_argument_parser() -> argparse.ArgumentParser:
     
     # Training arguments
     parser.add_argument("--train", action="store_true", help="Run model training")
-    parser.add_argument("--method",
-        choices=["full", "full_finetune", "lora", "qlora", "prefix", "prefix_tuning"],
-        help="Training method to use with --train",
-    )
-    parser.add_argument("--model",
-        default=config.get("model.name"),
-        choices=model_names or None,
-        help="Model alias from config/config.yaml",
-    )
+    parser.add_argument("--method", choices=["full","lora", "qlora", "prefix",], help="Training method to use with --train")
+    parser.add_argument("--model", default=config.get("model.name"), choices=model_names or None, help="Model alias from config/config.yaml")
     
-
+    # Generation and evaluation arguments
     parser.add_argument("--generate", action="store_true", help="Generate predictions using trained model")
     parser.add_argument("--evaluate", action="store_true", help="Evaluate model performance on test set")
     
@@ -105,7 +98,6 @@ def build_tasks(args: argparse.Namespace) -> Dict[str, Callable]:
     tasks: Dict[str, Callable] = {}
     if args.preprocess:
         from loaders.preprocess import preprocess
-
         tasks["preprocess"] = lambda: preprocess(output_dir=args.output_dir, preview=args.preview)
 
     method = normalize_method(args.method)
@@ -114,11 +106,9 @@ def build_tasks(args: argparse.Namespace) -> Dict[str, Callable]:
 
     if args.generate:
         from evaluation.generate import generate
-
         tasks["generate"] = generate
     if args.evaluate:
         from evaluation.evaluate import evaluate
-
         tasks["evaluate"] = evaluate
 
     return tasks
