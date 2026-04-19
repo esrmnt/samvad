@@ -13,7 +13,7 @@ Most parameter-efficient method:
   Prefix Tuning →  ~10K  trainable params  (0.002%)
 
 Usage (via main.py):
-    python main.py --train_prefix
+    python main.py --train --method prefix --model qwen
 
 Usage (directly):
     python training/prefix_tuning.py
@@ -47,8 +47,7 @@ from .common import (
 logger = logging.getLogger(__name__)
 
 MODEL_ID = config.get("model.id")
-PROCESSED_DIR = config.get("paths.processed_data_dir")
-CHECKPOINTS_DIR = config.get("paths.checkpoints_dir")
+PROCESSED_DIR = config.processed_data_dir()
 LEARNING_RATE = float(config.get("training.learning_rate"))
 NUM_EPOCHS = int(config.get("training.num_epochs"))
 BATCH_SIZE = int(config.get("training.batch_size"))
@@ -59,7 +58,7 @@ LR_SCHEDULER = config.get("training.lr_scheduler")
 NUM_VIRTUAL_TOKENS = int(config.get("prefix.num_virtual_tokens"))
 
 RUN_NAME = "prefix-tuning"
-OUTPUT_DIR = os.path.join(CHECKPOINTS_DIR, RUN_NAME)
+OUTPUT_DIR = config.checkpoint_dir(RUN_NAME)
 
 
 

@@ -10,7 +10,7 @@ Three innovations from the QLoRA paper (Dettmers et al. 2023):
   3. Paged optimizer — offloads optimizer states to CPU RAM during memory spikes
 
 Usage (via main.py):
-    python main.py --train_qlora
+    python main.py --train --method qlora --model qwen
 
 Usage (directly):
     python training/qlora.py
@@ -44,8 +44,7 @@ logger = logging.getLogger(__name__)
 os.environ["HF_HUB_OFFLINE"] = "1"
 
 MODEL_ID = config.get("model.id")
-PROCESSED_DIR = config.get("paths.processed_data_dir")
-CHECKPOINTS_DIR = config.get("paths.checkpoints_dir")
+PROCESSED_DIR = config.processed_data_dir()
 LEARNING_RATE = float(config.get("training.learning_rate"))
 NUM_EPOCHS = int(config.get("training.num_epochs"))
 BATCH_SIZE = int(config.get("training.batch_size"))
@@ -64,7 +63,7 @@ DOUBLE_QUANT = bool(config.get("qlora.double_quant"))
 QUANT_TYPE = config.get("qlora.quant_type")
 
 RUN_NAME = "qlora"
-OUTPUT_DIR = os.path.join(CHECKPOINTS_DIR, RUN_NAME)
+OUTPUT_DIR = config.checkpoint_dir(RUN_NAME)
 
 
 

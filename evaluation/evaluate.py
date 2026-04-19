@@ -20,8 +20,8 @@ Metrics computed:
     Diversity       — distinct-2: unique bigrams / total bigrams
 
 Output:
-    results/metrics/scores.csv      — full per-model metric table
-    results/metrics/scores.json     — same data as JSON
+    dataset/results/{model_slug}/metrics/scores.csv      — full per-model metric table
+    dataset/results/{model_slug}/metrics/scores.json     — same data as JSON
 
 Usage (via main.py):
     python main.py --evaluate
@@ -53,9 +53,8 @@ from config import config
 logger = logging.getLogger(__name__)
 
 
-RESULTS_DIR   = config.get("paths.results_dir")
-GENERATED_DIR = os.path.join(RESULTS_DIR, "generated")
-METRICS_DIR   = os.path.join(RESULTS_DIR, "metrics")
+GENERATED_DIR = config.generated_dir()
+METRICS_DIR   = config.metrics_dir()
 
 MODEL_NAMES = ["full_finetune", "lora", "qlora", "prefix_tuning"]
 

@@ -6,7 +6,7 @@ Only the low-rank adapter matrices A and B are updated (~0.7% of params).
 Base model weights are completely frozen.
 
 Usage (via main.py):
-    python main.py --train_lora
+    python main.py --train --method lora --model qwen
 
 Usage (directly):
     python training/lora.py
@@ -36,8 +36,7 @@ logger = logging.getLogger(__name__)
 os.environ["HF_HUB_OFFLINE"] = "1"
 
 MODEL_ID = config.get("model.id")
-PROCESSED_DIR = config.get("paths.processed_data_dir")
-CHECKPOINTS_DIR = config.get("paths.checkpoints_dir")
+PROCESSED_DIR = config.processed_data_dir()
 LEARNING_RATE = float(config.get("training.learning_rate"))
 NUM_EPOCHS = int(config.get("training.num_epochs"))
 BATCH_SIZE = int(config.get("training.batch_size"))
@@ -52,7 +51,7 @@ LORA_DROPOUT = float(config.get("lora.dropout"))
 LORA_TARGETS = config.get("lora.target_modules")
 
 RUN_NAME = "lora"
-OUTPUT_DIR = os.path.join(CHECKPOINTS_DIR, RUN_NAME)
+OUTPUT_DIR = config.checkpoint_dir(RUN_NAME)
 
 
 

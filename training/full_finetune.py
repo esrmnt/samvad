@@ -8,7 +8,7 @@ This is the baseline. All PEFT methods (LoRA, QLoRA, Prefix) are
 compared against the results produced here.
 
 Usage (via main.py):
-    python main.py --train_full
+    python main.py --train --method full --model qwen
 
 Usage (directly):
     python training/full_finetune.py
@@ -38,8 +38,7 @@ logger = logging.getLogger(__name__)
 os.environ["HF_HUB_OFFLINE"] = "1"
 
 MODEL_ID = config.get("model.id")
-PROCESSED_DIR = config.get("paths.processed_data_dir")
-CHECKPOINTS_DIR = config.get("paths.checkpoints_dir")
+PROCESSED_DIR = config.processed_data_dir()
 LEARNING_RATE = float(config.get("training.learning_rate"))
 NUM_EPOCHS = int(config.get("training.num_epochs"))
 BATCH_SIZE = int(config.get("training.batch_size"))
@@ -49,7 +48,7 @@ SAVE_STEPS = int(config.get("training.save_steps"))
 LR_SCHEDULER = config.get("training.lr_scheduler")
 
 RUN_NAME = "full-finetune"
-OUTPUT_DIR = os.path.join(CHECKPOINTS_DIR, RUN_NAME)
+OUTPUT_DIR = config.checkpoint_dir(RUN_NAME)
 
 
 

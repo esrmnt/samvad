@@ -11,8 +11,6 @@ Usage:
     model_id = config.get("model.id")
 """
 
-from .config import config
-
-__all__ = ["config"]
+from .config import Config, config
 
 __all__ = ["config", "Config"]

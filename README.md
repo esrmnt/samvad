@@ -32,13 +32,13 @@ Preprocess the dataset from the main entry point:
 
 ```bash
 # Preview sample prompts without saving
-python main.py --preprocess --preview
+python main.py --preprocess --model qwen --preview
 
 # Run full preprocessing pipeline
-python main.py --preprocess
+python main.py --preprocess --model qwen
 
 # Save to custom output directory
-python main.py --preprocess --output_dir ./custom_data_path
+python main.py --preprocess --model qwen --output_dir ./custom_data_path
 ```
 
 Or run preprocessing directly:
@@ -64,7 +64,7 @@ preprocess(preview=True)                    # preview mode
 2. Split into train/validation/test sets
 3. Build ChatML-formatted prompts
 4. Tokenize with label masking
-5. Save as Arrow datasets to `dataset/processed/`
+5. Save as Arrow datasets to `dataset/processed/{model_slug}/`
 
 ### Model Training
 
@@ -72,19 +72,31 @@ Train the model using different fine-tuning strategies:
 
 ```bash
 # Full fine-tuning (all parameters updated)
-python main.py --train_full
+python main.py --train --method full --model qwen
 
 # LoRA fine-tuning (16-rank adaptation layers)
-python main.py --train_lora
+python main.py --train --method lora --model qwen
 
 # QLoRA fine-tuning (quantized LoRA with 4-bit)
-python main.py --train_qlora
+python main.py --train --method qlora --model qwen
+```
+
+### Generation and Evaluation
+
+Generate predictions and evaluate all trained methods for a model:
+
+```bash
+# Generate outputs for available checkpoints under the selected model
+python main.py --generate --model qwen
+
+# Evaluate generated outputs for the selected model
+python main.py --evaluate --model qwen
 ```
 
 
 **Training outputs:**
-- Checkpoints saved to `dataset/checkpoints/{method}/`
-- Training results and metrics in `dataset/results/`
+- Checkpoints saved to `dataset/checkpoints/{model_slug}/{method}/`
+- Generated outputs and metrics saved to `dataset/results/{model_slug}/`
 - Trained adapters (LoRA) loadable with Hugging Face `peft`
 
 ## Configuration
@@ -156,9 +168,9 @@ samvad/
 │   ├── lora.py            # LoRA fine-tuning
 │   └── qlora.py           # QLoRA quantized fine-tuning
 ├── dataset/               # Generated dataset and checkpoints
-│   ├── processed/         # Preprocessed Arrow datasets
-│   ├── checkpoints/       # Saved model checkpoints
-│   └── results/           # Training metrics and results
+│   ├── processed/         # Model-scoped preprocessed Arrow datasets
+│   ├── checkpoints/       # Model-scoped saved model checkpoints
+│   └── results/           # Model-scoped generated outputs and metrics
 ├── requirements.txt       # Python dependencies
 ├── LICENSE                # MIT License
 └── README.md              # This file
@@ -197,7 +209,7 @@ Updates all model parameters. Baseline approach for comparison.
 
 - Memory intensive but often produces best results
 - Use when you have sufficient GPU memory
-- Training: `python main.py --train_full`
+- Training: `python main.py --train --method full --model qwen`
 
 ### LoRA (Low-Rank Adaptation)
 
@@ -206,7 +218,7 @@ Adds learnable low-rank matrices to attention layers. Recommended for most use c
 - 10-100x fewer trainable parameters
 - Fast training and inference with minimal latency
 - Easily combine multiple LoRA adapters
-- Training: `python main.py --train_lora`
+- Training: `python main.py --train --method lora --model qwen`
 - Default config: rank=16, alpha=32
 
 ### QLoRA (Quantized LoRA)
@@ -215,7 +227,7 @@ Combines 4-bit quantization with LoRA for extreme parameter efficiency.
 
 - Fits large models on consumer GPUs
 - Minimal performance degradation
-- Training: `python main.py --train_qlora`
+- Training: `python main.py --train --method qlora --model qwen`
 - Ideal for resource-constrained environments
 
 ## Dataset and Model
@@ -230,6 +242,15 @@ To use different models or datasets, update `config/config.yaml`:
 ```yaml
 model:
   id: "meta-llama/Llama-2-7b"  # Any model from Hugging Face Hub
+  slug: "llama-2-7b"           # Folder name under dataset artifacts
+  name: "llama"
+models:
+  qwen:
+    id: "Qwen/Qwen2-0.5B-Instruct"
+    slug: "qwen2-0.5b-instruct"
+  llama:
+    id: "meta-llama/Llama-2-7b"
+    slug: "llama-2-7b"
 dataset:
   id: "your-username/your-dataset"
 ```

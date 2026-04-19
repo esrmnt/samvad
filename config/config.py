@@ -6,6 +6,7 @@ Use: from config import config
 """
 
 import os
+import re
 import yaml
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -73,6 +74,84 @@ class Config:
             else:
                 return default
         return value
+
+    def model_names(self) -> list:
+        """Return configured model aliases."""
+        models = self.get("models", {})
+        return sorted(models.keys()) if isinstance(models, dict) else []
+
+    def select_model(self, model_name: Optional[str]) -> None:
+        """Select the active model config by alias."""
+        if not model_name:
+            return
+
+        models = self.get("models", {})
+        if not isinstance(models, dict) or model_name not in models:
+            choices = ", ".join(self.model_names()) or "none configured"
+            raise ValueError(f"Unknown model '{model_name}'. Available models: {choices}")
+
+        selected = models[model_name]
+        model_config = self._config_dict.setdefault("model", {})
+        model_config["name"] = model_name
+        model_config["id"] = selected["id"]
+        if selected.get("slug"):
+            model_config["slug"] = selected["slug"]
+        else:
+            model_config.pop("slug", None)
+
+    def model_slug(self) -> str:
+        """Return the folder-safe model identifier used for artifacts."""
+        configured_slug = self.get("model.slug")
+        if configured_slug:
+            return configured_slug
+
+        model_id = self.get("model.id", "model")
+        slug = model_id.rsplit("/", 1)[-1].lower()
+        slug = re.sub(r"[^a-z0-9._-]+", "-", slug)
+        slug = re.sub(r"-+", "-", slug).strip("-")
+        return slug or "model"
+
+    def artifact_path(self, *parts: str) -> str:
+        """Build a path under the configured artifact root."""
+        return os.path.join(self.get("paths.data_artifacts_dir", "./dataset"), *parts)
+
+    def processed_data_dir(self) -> str:
+        """Return the model-scoped processed dataset directory."""
+        return os.path.join(self.get("paths.processed_data_dir"), self.model_slug())
+
+    def checkpoints_dir(self) -> str:
+        """Return the model-scoped checkpoint root directory."""
+        return os.path.join(self.get("paths.checkpoints_dir"), self.model_slug())
+
+    def checkpoint_dir(self, run_name: str) -> str:
+        """Return the checkpoint directory for one training run."""
+        return os.path.join(self.checkpoints_dir(), run_name)
+
+    def results_dir(self) -> str:
+        """Return the model-scoped results root directory."""
+        return os.path.join(self.get("paths.results_dir"), self.model_slug())
+
+    def generated_dir(self) -> str:
+        """Return the directory for generated prediction CSVs."""
+        return os.path.join(self.results_dir(), "generated")
+
+    def metrics_dir(self) -> str:
+        """Return the directory for evaluation metric outputs."""
+        return os.path.join(self.results_dir(), "metrics")
+
+    def artifact_dirs(self) -> list:
+        """Return artifact directories that should exist before running tasks."""
+        return [
+            self.get("paths.data_artifacts_dir"),
+            self.get("paths.processed_data_dir"),
+            self.get("paths.checkpoints_dir"),
+            self.get("paths.results_dir"),
+            self.processed_data_dir(),
+            self.checkpoints_dir(),
+            self.results_dir(),
+            self.generated_dir(),
+            self.metrics_dir(),
+        ]
 
     def __getattr__(self, item: str) -> Any:
         """Allow attribute-style access to config values."""
