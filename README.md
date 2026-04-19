@@ -1,12 +1,17 @@
 # samvad
 
-Counterspeech generation with fine-tuned language models. This project provides a complete pipeline for preprocessing hate speech datasets and training multiple fine-tuning strategies (standard fine-tuning, LoRA, and QLoRA) for generating effective counter-responses.
+`samvad` is a small training/evaluation project for counterspeech generation.
+It takes hate-speech/counterspeech examples, formats them as chat prompts, and uses Hugging Face tooling to train and compare a few fine-tuning methods.
 
-## Quick Start
+The current default setup uses
 
-### Setup
+- Model: `Qwen/Qwen2-0.5B-Instruct`
+- Dataset: `Aswini123/IntentCONANv2`
+- Methods: full fine-tuning, LoRA, QLoRA, and prefix tuning
 
-One-time environment setup:
+Most paths, model settings, and training hyperparameters live in `config/config.yaml`.
+
+## Setup
 
 ```bash
 cd samvad
@@ -15,244 +20,212 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### Running the Project
-
-Activate the environment and run:
+You can check that the CLI starts with
 
 ```bash
-source venv/bin/activate
 python main.py
 ```
 
-## Workflows
+That command only creates the configured artifact directories and prints the available next steps.
 
-### Data Preprocessing
+## Workflow
 
-Preprocess the dataset from the main entry point:
+### 1. Preprocess the dataset
+
+Preview a few formatted prompts first
 
 ```bash
-# Preview sample prompts without saving
 python main.py --preprocess --model qwen --preview
+```
 
-# Run full preprocessing pipeline
+Then build the processed train/validation/test splits
+
+```bash
 python main.py --preprocess --model qwen
+```
 
-# Save to custom output directory
+By default this writes to
+
+```text
+dataset/processed/{model_slug}/
+```
+
+To write somewhere else
+
+```bash
 python main.py --preprocess --model qwen --output_dir ./custom_data_path
 ```
 
-Or run preprocessing directly:
-
-```bash
-python data/preprocess.py --preview
-python data/preprocess.py
-python data/preprocess.py --output_dir ./custom_data_path
-```
-
-Or import in your code:
+The preprocessing code is in `loaders/preprocess.py`. It can also be imported directly
 
 ```python
 from loaders.preprocess import preprocess
 
-preprocess()                                # uses config defaults
-preprocess(output_dir="./my_data")          # custom output
-preprocess(preview=True)                    # preview mode
+preprocess()
+preprocess(preview=True)
+preprocess(output_dir="./my_data")
 ```
 
-**Preprocessing pipeline:**
-1. Load dataset from HuggingFace Hub (IntentCONANv2)
-2. Split into train/validation/test sets
-3. Build ChatML-formatted prompts
-4. Tokenize with label masking
-5. Save as Arrow datasets to `dataset/processed/{model_slug}/`
+The preprocessing step does the following
 
-### Model Training
+1. Loads the configured dataset from Hugging Face.
+2. Builds train, validation, and test splits.
+3. Converts each row into the chat prompt format used for training.
+4. Tokenizes the prompts.
+5. Masks labels so loss is only computed on the assistant response.
+6. Saves the processed dataset to disk.
 
-Train the model using different fine-tuning strategies:
+### 2. Train a model
+
+Run one method at a time
 
 ```bash
-# Full fine-tuning (all parameters updated)
+# Full fine-tuning
 python main.py --train --method full --model qwen
 
-# LoRA fine-tuning (16-rank adaptation layers)
+# LoRA
 python main.py --train --method lora --model qwen
 
-# QLoRA fine-tuning (quantized LoRA with 4-bit)
+# QLoRA
 python main.py --train --method qlora --model qwen
+
+# Prefix tuning
+python main.py --train --method prefix --model qwen
 ```
 
-### Generation and Evaluation
+Checkpoints are saved under
 
-Generate predictions and evaluate all trained methods for a model:
+```text
+dataset/checkpoints/{model_slug}/{method}/
+```
+
+Training resumes from the most recent checkpoint in the method directory when one is available.
+
+### 3. Generate outputs
+
+After training, generate counterspeech for the held-out test split
 
 ```bash
-# Generate outputs for available checkpoints under the selected model
 python main.py --generate --model qwen
+```
 
-# Evaluate generated outputs for the selected model
+The generation script looks for available checkpoints and writes CSV files to
+
+```text
+dataset/results/{model_slug}/generated/
+```
+
+Each generated CSV contains
+
+```text
+hate_speech, cs_type, reference, generated
+```
+
+### 4. Evaluate generated outputs
+
+```bash
 python main.py --evaluate --model qwen
 ```
 
+Evaluation reads the generated CSV files and writes
 
-**Training outputs:**
-- Checkpoints saved to `dataset/checkpoints/{model_slug}/{method}/`
-- Generated outputs and metrics saved to `dataset/results/{model_slug}/`
-- Trained adapters (LoRA) loadable with Hugging Face `peft`
+```text
+dataset/results/{model_slug}/metrics/scores.csv
+dataset/results/{model_slug}/metrics/scores.json
+```
+
+The current evaluation script reports overlap, readability, embedding, toxicity, novelty, and diversity metrics, including BLEU, ROUGE, METEOR, GLEU, CoSIM, BERTScore, Detoxify toxicity, and distinct-2 diversity.
+
+## Results
+
+The table below is from the current Qwen run on the held-out test split. These
+numbers are useful for comparing the runs in this repo, but they should not be
+read as a complete judgment of counterspeech quality.
+
+Full outputs are saved in
+
+```text
+dataset/results/qwen2-0/metrics/scores.csv
+dataset/results/qwen2-0/metrics/scores.json
+```
+
+Main comparison
+
+| Method | BLEU | ROUGE-L | METEOR | CoSIM | BERT Score | Toxicity | Diversity |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Full fine-tuning | 0.0582 | 0.1809 | 0.1790 | 0.4770 | 0.2685 | 0.0056 | 0.1707 |
+| LoRA | 0.0607 | 0.1851 | 0.1850 | 0.5164 | 0.2858 | 0.0096 | 0.2836 |
+| QLoRA | 0.0557 | 0.1812 | 0.1839 | 0.5094 | 0.2807 | 0.0120 | 0.2847 |
+| Prefix tuning | 0.0352 | 0.1593 | 0.1707 | 0.4872 | 0.2550 | 0.0080 | 0.2771 |
+
+Additional metrics
+
+| Method | ROUGE-1 | ROUGE-2 | GLEU | Repetition Rate | Flesch Reading Ease | Novelty |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Full fine-tuning | 0.2593 | 0.0729 | 0.0682 | 0.0023 | 39.33 | 0.9919 |
+| LoRA | 0.2731 | 0.0745 | 0.0705 | 0.0003 | 36.38 | 0.9908 |
+| QLoRA | 0.2689 | 0.0708 | 0.0676 | 0.0003 | 37.37 | 0.9912 |
+| Prefix tuning | 0.2459 | 0.0541 | 0.0547 | 0.0002 | 38.24 | 0.9888 |
 
 ## Configuration
 
-All project settings are managed in a single `config/config.yaml` file, globally accessible using a singleton pattern.
+The main config file is
 
-### Accessing Configuration
+```text
+config/config.yaml
+```
+
+Useful sections
+
+- `model` selects the active model alias.
+- `models` stores model aliases, Hugging Face IDs, and folder slugs.
+- `dataset` stores the Hugging Face dataset ID.
+- `data` controls max sequence length, split sizes, and random seed.
+- `paths` controls where processed data, checkpoints, and results are stored.
+- `prompts` stores the system prompt and assistant marker.
+- `training` stores shared training hyperparameters.
+- `lora`, `qlora`, and `prefix` store method-specific settings.
+- `generation` stores inference settings.
+
+Config values are available from Python with dot notation
 
 ```python
 from config import config
 
-# Get values with dot notation
-batch_size = config.get("training.batch_size")
 model_id = config.get("model.id")
-learning_rate = config.get("training.learning_rate", default=1e-4)
-
-# Access entire sections as dictionaries
-training_config = config.training
-data_config = config.data
-lora_config = config.lora
+batch_size = config.get("training.batch_size")
+learning_rate = config.get("training.learning_rate", default=2e-4)
 ```
 
-### Configuration Structure
-
-The `config/config.yaml` file is organized into sections:
-
-- **model**: Model identifier (default: Qwen/Qwen2-0.5B-Instruct)
-- **dataset**: Dataset identifier (default: Aswini123/IntentCONANv2)
-- **data**: Data processing parameters (max_length, train/val/test splits, random seed)
-- **paths**: Directory paths for artifacts, checkpoints, and results
-- **prompts**: System prompts and markers for conversational formatting
-- **training**: Hyperparameters (learning rate, epochs, batch size, warmup, scheduler)
-- **lora**: LoRA configuration (rank, alpha, target modules)
-- **qlora**: QLoRA quantization settings
-
-### Adding New Configuration
-
-Add new values to `config/config.yaml` and access via dot notation anywhere in your code.
-
-Example:
-
-```yaml
-# config/config.yaml
-inference:
-  max_new_tokens: 256
-  temperature: 0.7
-```
-
-```python
-# Your code
-max_tokens = config.get("inference.max_new_tokens")
-temp = config.get("inference.temperature", default=0.7)
-```
-
-## Project Structure
-
-```
-samvad/
-├── main.py                 # CLI entry point - orchestrates all workflows
-├── config/
-│   ├── __init__.py        # Exports global config instance
-│   ├── config.py          # Configuration loader with dot-notation access
-│   └── config.yaml        # All project settings (EDIT THIS)
-├── loaders/
-│   ├── __init__.py
-│   └── preprocess.py      # Data preprocessing and dataset loading
-├── training/
-│   ├── full_finetune.py   # Full parameter fine-tuning
-│   ├── lora.py            # LoRA fine-tuning
-│   └── qlora.py           # QLoRA quantized fine-tuning
-├── dataset/               # Generated dataset and checkpoints
-│   ├── processed/         # Model-scoped preprocessed Arrow datasets
-│   ├── checkpoints/       # Model-scoped saved model checkpoints
-│   └── results/           # Model-scoped generated outputs and metrics
-├── requirements.txt       # Python dependencies
-├── LICENSE                # MIT License
-└── README.md              # This file
-```
-
-## Installation from Source
-
-```bash
-pip install -e .
-```
-
-This installs the project in editable mode with all dependencies.
-
-## Architecture
-
-The project follows a clean, modular design:
-
-- **`main.py`**: CLI orchestrator that parses arguments and delegates to workflow functions
-- **`config.py`**: Singleton configuration loader with dot-notation access from any module
-- **`loaders/preprocess.py`**: Data loading, preprocessing, and Arrow dataset generation
-- **`training/`**: Modular training implementations (full, LoRA, QLoRA) using HuggingFace Trainer
-- **`dataset/`**: Artifact storage (processed data, model checkpoints, training results)
-
-Each workflow module can be:
-- Called from `main.py` (CLI mode)
-- Run directly (standalone mode)
-- Imported and called from other code (library mode)
-
-This design enables flexibility whether you're using samvad as a CLI tool or integrating it into a larger codebase.
-
-## Fine-Tuning Methods
-
-### Full Fine-Tuning
-
-Updates all model parameters. Baseline approach for comparison.
-
-- Memory intensive but often produces best results
-- Use when you have sufficient GPU memory
-- Training: `python main.py --train --method full --model qwen`
-
-### LoRA (Low-Rank Adaptation)
-
-Adds learnable low-rank matrices to attention layers. Recommended for most use cases.
-
-- 10-100x fewer trainable parameters
-- Fast training and inference with minimal latency
-- Easily combine multiple LoRA adapters
-- Training: `python main.py --train --method lora --model qwen`
-- Default config: rank=16, alpha=32
-
-### QLoRA (Quantized LoRA)
-
-Combines 4-bit quantization with LoRA for extreme parameter efficiency.
-
-- Fits large models on consumer GPUs
-- Minimal performance degradation
-- Training: `python main.py --train --method qlora --model qwen`
-- Ideal for resource-constrained environments
-
-## Dataset and Model
-
-By default, samvad uses:
-
-- **Model**: Qwen/Qwen2-0.5B-Instruct (500M parameters)
-- **Dataset**: Aswini123/IntentCONANv2 (hate speech + counter-speech pairs)
-
-To use different models or datasets, update `config/config.yaml`:
+To add another model, add a new alias under `models` and set `model.name` to that alias. Before venturing into this path however, please see the section "**Future Works**"
 
 ```yaml
 model:
-  name: "llama"                # Active model alias
+  name: "qwen"
+
 models:
   qwen:
     id: "Qwen/Qwen2-0.5B-Instruct"
-    slug: "qwen2-0.5b-instruct"
-  llama:
-    id: "meta-llama/Llama-2-7b"
-    slug: "llama-2-7b"
-dataset:
-  id: "your-username/your-dataset"
+    slug: "qwen2-0"
 ```
+
+## Notes
+
+- The training scripts use Hugging Face `Trainer`.
+- LoRA, QLoRA, and prefix tuning use `peft`.
+- QLoRA depends on `bitsandbytes`.
+- The current code is mainly set up around Qwen-style causal chat models. Other decoder-only models may work with config changes, but prompt formatting, tokenizer behavior and LoRA target modules should be checked before training.
+
+## Future Work
+
+One useful next step is to make model support more generic. Ideally, adding a new model should only require editing `config/config.yaml`. To get there, the code should move model-specific pieces into config or small adapter helpers, especially
+
+- chat prompt formatting, preferably using each tokenizer's chat template when available
+- tokenizer padding and special-token handling
+- LoRA/QLoRA target module names
+- causal-LM versus encoder-decoder model loading
+- offline/cache behavior for newly added models
 
 ## License
 
-Licensed under the GNU Lesser General Public License v2.1 (LGPL-2.1). See [LICENSE](LICENSE) for details.
+This project is licensed under LGPL-2.1. See `LICENSE` for the full text.
