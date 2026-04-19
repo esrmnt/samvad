@@ -225,7 +225,7 @@ def log_training_complete(output_dir: str, train_loss: float = None) -> None:
     
     Args:
         output_dir: Directory where model was saved
-        train_loss: Final training loss (optional)
+        train_loss: Final training loss
     """
     logger.info("Training complete.")
     logger.info(f"Model saved to : {output_dir}")
