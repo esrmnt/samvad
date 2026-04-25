@@ -35,8 +35,6 @@ from .common import (
 
 logger = logging.getLogger(__name__)
 
-os.environ["HF_HUB_OFFLINE"] = "1"
-
 MODEL_ID = config.get("model.id")
 PROCESSED_DIR = config.processed_data_dir()
 LEARNING_RATE = float(config.get("training.learning_rate"))
